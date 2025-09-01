@@ -66,3 +66,7 @@ def history_page():
 @view_bp.route('/change-password')
 def change_password_page():
     return render_template('change-password.html')
+
+@view_bp.route('/register')
+def create_user_page():
+    return render_template('register.html')

@@ -1,22 +1,204 @@
 {% extends "layout.html" %}
+{% block title %}Login · RPC Surgical Video Library{% endblock %}
+
+{% block head_extra %}
+<style>
+    /* --- Input polish ------------------------------------------------------ */
+    /* kill Chrome's yellow autofill; keep theme colors */
+    input.input:-webkit-autofill,
+    input.input:-webkit-autofill:hover,
+    input.input:-webkit-autofill:focus {
+        -webkit-text-fill-color: var(--text);
+        transition: background-color 5000s ease-in-out 0s;
+        box-shadow: 0 0 0px 1000px color-mix(in oklab, var(--surface) 96%, transparent) inset;
+    }
+
+    .dark input.input:-webkit-autofill,
+    .dark input.input:-webkit-autofill:hover,
+    .dark input.input:-webkit-autofill:focus {
+        -webkit-text-fill-color: var(--text);
+        box-shadow: 0 0 0px 1000px color-mix(in oklab, var(--surface) 92%, transparent) inset;
+    }
+
+    /* floating-label helper (smoother) */
+    .fl-label {
+        transition: transform .18s ease, color .18s ease, top .18s ease, font-size .18s ease;
+    }
+
+    /* nicer card shadow + border */
+    .elevated {
+        box-shadow:
+            0 10px 30px rgba(0, 0, 0, .08),
+            0 2px 10px rgba(0, 0, 0, .04);
+        border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+    }
+
+    /* primary button micro-interaction */
+    #loginBtn {
+        transition: box-shadow .18s ease, transform .08s ease;
+    }
+
+    #loginBtn:hover {
+        box-shadow: 0 10px 20px rgba(0, 0, 0, .10);
+    }
+
+    #loginBtn:active {
+        transform: translateY(1px);
+    }
+
+    /* small icon chip */
+    .icon-chip {
+        width: 42px;
+        height: 42px;
+        border-radius: 14px;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(180deg, var(--brand-500), var(--brand-600));
+        color: #fff;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, .15);
+    }
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="flex flex-col w-full max-w-md mx-auto mt-12 card p-10 shadow-lg gap-6">
-    <h1 class="text-2xl font-bold mb-6 text-center text-[color:var(--text)]">🔐 Sign in to your account</h1>
+<!-- Ambient background, softer and cleaner -->
+<div class="pointer-events-none fixed inset-0 -z-10">
+    <div class="absolute inset-0 opacity-70 dark:opacity-40" style="background:
+         radial-gradient(900px 480px at 15% -10%, color-mix(in oklab, var(--brand-600) 18%, transparent) 0%, transparent 60%),
+         radial-gradient(900px 520px at 110% 0%, color-mix(in oklab, var(--brand-400) 18%, transparent) 0%, transparent 62%),
+         linear-gradient(180deg, color-mix(in oklab, var(--surface) 98%, transparent) 0%, transparent 100%);">
+    </div>
+</div>
 
-    <div class="flex flex-col justify-center items-center  gap-6">
-        <input id="username" type="text" placeholder="Username or Email" class="input w-full" autocomplete="username" />
-
-        <input id="password" type="password" placeholder="Password" class="input w-full"
-            autocomplete="current-password" />
-
-        <button onclick="login()" class="btn btn-primary">Login</button>
+<section class="w-full max-w-md mx-auto mt-16 sm:mt-20 space-y-6">
+    <!-- Header -->
+    <div class="mb-6 text-center flex flex-col items-center">
+        <div class="icon-chip mb-4"><span class="text-lg font-bold">RP</span></div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-[color:var(--text)]">Sign in</h1>
+        <p class="muted mt-1 text-sm">Access RPC Surgical Video Library</p>
     </div>
 
-    <p id="errorMsg" class="mt-4 text-sm hidden text-red-600 dark:text-red-400"></p>
-</div>
+    <!-- Card -->
+    <div class="card elevated rounded-2xl p-6 sm:p-8 backdrop-blur">
+        <!-- Tip -->
+        <div class="glass mb-5 rounded-xl px-4 py-3 text-sm flex items-center gap-2">
+            <span>💡</span><span class="muted">Use your <strong>email</strong> or <strong>username</strong>.</span>
+        </div>
+
+        <!-- Form (keeps your hooks) -->
+        <form id="loginForm" class="flex flex-col gap-5" onsubmit="event.preventDefault(); login();">
+            <!-- Username -->
+            <div class="relative"> 
+                <input id="username" name="username" type="text" inputmode="email" class="peer w-full pl-10 pr-3 pt-4 pb-2
+                        text-[rgb(var(--text)_/_var(--tw-text-opacity))]
+                        bg-[color:var(--surface)] dark:bg-[color:var(--surface)]
+                        placeholder:opacity-60
+                        shadow-sm border border-[color:var(--border)] rounded-lg
+                        "
+                placeholder=" " autocomplete="username" required />
+            
+                <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-60">📧</span>
+            
+                <label for="username" class="fl-label pointer-events-none absolute left-11 top-1/2 -translate-y-1/2
+                         text-sm muted
+                         peer-placeholder-shown:top-1/2 peer-placeholder-shown:text-sm
+                         peer-focus:top-2 peer-focus:text-xs peer-focus:text-[color:var(--brand-700)]
+                         peer-[:not(:placeholder-shown)]:top-2 peer-[:not(:placeholder-shown)]:text-xs">
+                    Username or Email
+                </label>
+            </div>
+
+
+            <!-- Password -->
+            <div class="relative">
+                <input id="password" name="password" type="password" class="peer w-full pl-10 pr-3 pt-4 pb-2
+                        text-[rgb(var(--text)_/_var(--tw-text-opacity))]
+                        bg-[color:var(--surface)] dark:bg-[color:var(--surface)]
+                        placeholder:opacity-60
+                        shadow-sm border border-[color:var(--border)] rounded-lg"
+                    placeholder=" " autocomplete="current-password" required />
+                <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-60">🔒</span>
+                <label for="password" class="fl-label pointer-events-none absolute left-11 top-1/2 -translate-y-1/2
+                      text-sm muted
+                      peer-placeholder-shown:top-1/2 peer-placeholder-shown:text-sm
+                      peer-focus:top-2 peer-focus:text-xs peer-focus:text-[color:var(--brand-700)]
+                      peer-[:not(:placeholder-shown)]:top-2 peer-[:not(:placeholder-shown)]:text-xs">
+                    Password
+                </label>
+                <button type="button" id="togglePwd" class="absolute right-2 top-1/2 -translate-y-1/2 text-xs px-2 py-1 rounded
+                       hover:bg-[color:var(--brand-50)] muted" aria-label="Show password"
+                    aria-pressed="false">Show</button>
+            </div>
+
+            <!-- Options -->
+            <div class="flex items-center justify-between -mt-1">
+                <label class="inline-flex items-center gap-2 text-sm">
+                    <input id="rememberMe" type="checkbox" class="checkbox" />
+                    <span class="muted">Remember me</span>
+                </label>
+                <a href="/forgot-password" class="text-sm no-underline hover:underline text-[color:var(--brand-600)]">
+                    Forgot password?
+                </a>
+            </div>
+
+            <!-- Submit -->
+            <button id="loginBtn" type="submit" class="btn btn-primary w-full py-3 text-base font-semibold">
+                Sign in
+            </button>
+
+            <!-- Error (ARIA live) -->
+            <p id="errorMsg" role="alert" aria-live="polite" class="mt-1 text-sm hidden text-red-600 dark:text-red-400">
+            </p>
+
+            <!-- Divider + secondary -->
+            <div class="relative my-1">
+                <div class="absolute inset-0 flex items-center">
+                    <div class="w-full border-t border-[color:var(--border)]"></div>
+                </div>
+                <div class="relative flex justify-center"><span
+                        class="bg-[color:var(--surface)] px-3 text-xs muted">or</span></div>
+            </div>
+
+            <a href="/register" class="btn-ghost w-full text-center no-underline border border-[color:var(--border)]
+                rounded-lg py-2.5 hover:bg-[color:var(--brand-50)]">
+                Create a new account
+            </a>
+        </form>
+    </div>
+
+    <p class="muted mt-8 text-center text-xs">
+        By continuing you agree to our <a href="/terms" class="no-underline hover:underline">Terms</a> &amp;
+        <a href="/privacy" class="no-underline hover:underline">Privacy Policy</a>.
+    </p>
+</section>
 {% endblock %}
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/login.js') }}"></script>
+<script>
+    (function () {
+        // Show/hide password
+        const pwd = document.getElementById("password");
+        const btn = document.getElementById("togglePwd");
+        if (btn && pwd) {
+            btn.addEventListener("click", () => {
+                const show = pwd.type === "password";
+                pwd.type = show ? "text" : "password";
+                btn.textContent = show ? "Hide" : "Show";
+                btn.setAttribute("aria-label", show ? "Hide password" : "Show password");
+                btn.setAttribute("aria-pressed", String(show));
+                pwd.focus({ preventScroll: true });
+            });
+        }
+
+        // Focus ring polish
+        document.querySelectorAll(".input").forEach((el) => {
+            el.addEventListener("focus", () => el.classList.add("ring-1", "ring-[color:var(--brand-600)]"));
+            el.addEventListener("blur", () => el.classList.remove("ring-1", "ring-[color:var(--brand-600)]"));
+        });
+
+        // Optional: expose remember-me to login.js
+        window.__getRememberMe = () => !!document.getElementById("rememberMe")?.checked;
+    })();
+</script>
 {% endblock %}
