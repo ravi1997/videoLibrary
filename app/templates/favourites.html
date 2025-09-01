@@ -1,0 +1,300 @@
+{% extends "layout.html" %}
+{% block title %}Favourites · RPC Surgical Video Library{% endblock %}
+
+{% block content %}
+<section class="mb-8 text-center flex flex-col items-center">
+  <h1 class="text-2xl md:text-3xl font-bold text-[color:var(--text)]">💖 Your Favourites</h1>
+  <p class="muted mt-1">
+    Saved videos you can quickly revisit.
+    <span class="ml-2">(<span id="totalCount">0</span> total)</span>
+  </p>
+</section>
+
+<!-- Toolbar -->
+<section class="mb-6">
+  <div class="glass p-3 rounded-xl flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+    <div class="flex items-center gap-2">
+      <button id="sortRecent" class="px-3 py-2 rounded-lg border border-[color:var(--border)] hover:bg-[color:var(--brand-50)]">🆕 Recent Uploaded</button>
+      <button id="sortAlpha" class="px-3 py-2 rounded-lg border border-[color:var(--border)] hover:bg-[color:var(--brand-50)]">🔤 A–Z</button>
+    </div>
+    <button id="viewToggle" class="btn-ghost px-3 py-2 rounded-lg border border-[color:var(--border)]">Toggle Grid/List</button>
+  </div>
+</section>
+
+<!-- Results -->
+<section>
+  <div id="favGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+    {% for _ in range(8) %}
+    <article class="card p-3 animate-pulse">
+      <div class="rounded-lg h-40 bg-[color:var(--border)] mb-3"></div>
+      <div class="h-4 bg-[color:var(--border)] rounded w-4/5 mb-2"></div>
+      <div class="h-3 bg-[color:var(--border)] rounded w-3/5"></div>
+    </article>
+    {% endfor %}
+  </div>
+
+  <!-- Empty state -->
+  <div id="emptyState" class="hidden text-center muted mt-10">
+    <p>No favourites yet. Go to any video and tap <span class="px-2 py-1 rounded border border-[color:var(--border)]">❤️ Favourite</span>.</p>
+  </div>
+
+  <!-- Pagination -->
+  <div class="mt-8 flex items-center justify-center gap-4">
+    <button id="prevBtn" class="btn-ghost px-4 py-2 rounded-lg border border-[color:var(--border)]">⏮ Prev</button>
+    <span id="pageNumber" class="text-lg font-medium text-[color:var(--text)]">Page 1</span>
+    <button id="nextBtn" class="btn-ghost px-4 py-2 rounded-lg border border-[color:var(--border)]">Next ⏭</button>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  // --- Config (align with your API) ---
+  const API = {
+    // JSON list endpoint. Use your working route.
+    // If you keep your snippet, expose a dedicated /api path in Flask (see next message).
+    list: "/api/v1/video/favorite?page={page}&per_page={size}&sort={sort}",
+    // Remove favourite
+    remove: (id) => `/api/v1/video/${encodeURIComponent(id)}/favorite`,
+  };
+  const PAGE_SIZE = 12;
+
+  // --- State ---
+  const state = {
+    view: localStorage.getItem("fav.view") || "grid", // grid|list
+    sort: localStorage.getItem("fav.sort") || "recent", // recent|alpha
+    page: +(localStorage.getItem("fav.page") || 1),
+    pages: 1,
+    total: 0,
+    items: [],
+  };
+
+  // --- DOM ---
+  const $ = (s, r=document) => r.querySelector(s);
+  const favGrid = $("#favGrid");
+  const emptyState = $("#emptyState");
+  const totalCount = $("#totalCount");
+  const pageNumber = $("#pageNumber");
+  const prevBtn = $("#prevBtn");
+  const nextBtn = $("#nextBtn");
+  const sortRecent = $("#sortRecent");
+  const sortAlpha = $("#sortAlpha");
+  const viewToggle = $("#viewToggle");
+
+  // --- Init ---
+  function init() {
+    sortRecent?.addEventListener("click", () => { state.sort = "recent"; persist(); refresh(); });
+    sortAlpha?.addEventListener("click", () => { state.sort = "alpha"; persist(); refresh(); });
+
+    viewToggle?.addEventListener("click", () => {
+      state.view = state.view === "grid" ? "list" : "grid";
+      persist();
+      render(state.items);
+    });
+
+    prevBtn?.addEventListener("click", () => changePage(-1));
+    nextBtn?.addEventListener("click", () => changePage(1));
+
+    refresh();
+  }
+
+  function persist() {
+    localStorage.setItem("fav.view", state.view);
+    localStorage.setItem("fav.sort", state.sort);
+    localStorage.setItem("fav.page", String(state.page));
+  }
+
+  function changePage(delta) {
+    const next = Math.min(Math.max(1, state.page + delta), state.pages || 1);
+    if (next === state.page) return;
+    state.page = next;
+    persist();
+    refresh();
+  }
+
+  // --- Fetch ---
+  async function refresh() {
+    // skeletons visible by default from template
+    const url = API.list
+      .replace("{page}", encodeURIComponent(state.page))
+      .replace("{size}", encodeURIComponent(PAGE_SIZE))
+      .replace("{sort}", encodeURIComponent(state.sort));
+
+    try {
+      const res = await fetch(url, {
+        headers: { "Accept": "application/json", "Authorization": `Bearer ${localStorage.getItem("token") || ""}` }
+      });
+      if (res.status === 401) {
+        location.href = "/login";
+        return;
+      }
+      const data = await res.json();
+
+      // Expected shapes supported:
+      // {items:[{id,title,thumbnail,duration,views,published_at}], count, page, pages}
+      // OR {items:[...], total, page, pages}
+      state.items = data.items || [];
+      state.total = (data.count ?? data.total ?? state.items.length) || 0;
+      state.page = data.page || state.page;
+      state.pages = data.pages || Math.max(1, Math.ceil(state.total / PAGE_SIZE));
+
+      // sort client-side if API doesn't handle it
+      if (state.sort === "alpha") {
+        state.items.sort((a,b) => (a.title||"").localeCompare(b.title||""));
+      } else {
+        state.items.sort((a,b) => new Date(b.published_at||0) - new Date(a.published_at||0));
+      }
+
+      render(state.items);
+    } catch (e) {
+      console.error("Failed to load favourites:", e);
+      state.items = [];
+      state.total = 0;
+      state.pages = 1;
+      render(state.items);
+    }
+  }
+
+  // --- Render ---
+  function render(items) {
+    if (!favGrid) return;
+
+    // page / total
+    if (totalCount) totalCount.textContent = String(state.total);
+    if (pageNumber) pageNumber.textContent = `Page ${state.page} of ${state.pages || 1}`;
+    disable(prevBtn, state.page <= 1);
+    disable(nextBtn, state.page >= (state.pages || 1));
+
+    if (!items.length) {
+      emptyState?.classList.remove("hidden");
+      favGrid.replaceChildren(); // clear skeletons
+      return;
+    } else {
+      emptyState?.classList.add("hidden");
+    }
+
+    // apply view class
+    if (state.view === "list") {
+      favGrid.classList.remove("grid");
+      favGrid.classList.add("list-view");
+    } else {
+      favGrid.classList.remove("list-view");
+      favGrid.classList.add("grid");
+    }
+
+    // mount
+    const frag = document.createDocumentFragment();
+    items.forEach(v => frag.appendChild(state.view === "list" ? row(v) : card(v)));
+    favGrid.replaceChildren(frag);
+  }
+
+  // --- Builders ---
+  function card(v) {
+    const a = document.createElement("article");
+    a.className = "card p-0 overflow-hidden hover:shadow-xl transition-shadow";
+    a.innerHTML = `
+      <a class="block relative group" href="${escapeAttr(v.url || `/${encodeURIComponent(v.uuid||"")}`)}" aria-label="${escapeAttr(v.title||"Video")}">
+        <div class="w-full aspect-video bg-[color:var(--border)] relative overflow-hidden">
+          <img class="w-full h-full object-cover block" src="${escapeAttr(thumb(v))}" alt="${escapeAttr(v.title||"Video")}" loading="lazy" decoding="async">
+          <span class="absolute bottom-2 right-2 text-xs px-2 py-1 rounded bg-black/70 text-white">${fmtDuration(v.duration)}</span>
+        </div>
+        <div class="p-3">
+          <h3 class="font-semibold line-clamp-2 text-[color:var(--text)]">${escapeHtml(v.title || "Untitled")}</h3>
+          <p class="text-sm mt-1 muted line-clamp-2">${escapeHtml(v.description || v.category_name || "")}</p>
+          <div class="flex items-center justify-between mt-3">
+            <span class="text-xs muted">${escapeHtml(meta(v))}</span>
+            <button data-unf="${escapeAttr(v.uuid||"")}" class="text-xs px-2 py-1 rounded border border-[color:var(--border)] hover:bg-[color:var(--brand-50)]">Remove</button>
+          </div>
+        </div>
+      </a>
+    `;
+    // stop link when clicking remove
+    a.querySelector("button[data-unf]")?.addEventListener("click", onUnfavouriteClick);
+    return a;
+  }
+
+  function row(v) {
+    const a = document.createElement("a");
+    a.className = "card p-3 flex gap-3 items-center hover:shadow-xl transition-shadow";
+    a.href = v.url || `/${encodeURIComponent(v.uuid||"")}`;
+    a.innerHTML = `
+      <div class="w-48 shrink-0 aspect-video rounded-lg overflow-hidden bg-[color:var(--border)]">
+        <img class="w-full h-full object-cover block" src="${escapeAttr(thumb(v))}" alt="${escapeAttr(v.title||"Video")}" loading="lazy" decoding="async">
+      </div>
+      <div class="min-w-0 flex-1">
+        <h3 class="font-semibold text-[color:var(--text)] line-clamp-1">${escapeHtml(v.title || "Untitled")}</h3>
+        <p class="text-sm muted mt-1 line-clamp-2">${escapeHtml(v.description || v.category_name || "")}</p>
+        <div class="text-xs muted mt-2">${escapeHtml(meta(v))}</div>
+      </div>
+      <div class="shrink-0">
+        <button data-unf="${escapeAttr(v.uuid||"")}" class="text-xs px-2 py-1 rounded border border-[color:var(--border)] hover:bg-[color:var(--brand-50)]">Remove</button>
+      </div>
+    `;
+    a.querySelector("button[data-unf]")?.addEventListener("click", onUnfavouriteClick);
+    return a;
+  }
+
+  // --- Unfavourite handler (optimistic) ---
+  async function onUnfavouriteClick(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const btn = e.currentTarget;
+    const id = btn?.getAttribute("data-unf");
+    if (!id) return;
+
+    const keep = state.items.filter(v => String(v.id) !== String(id));
+    // optimistic remove
+    const prev = state.items.slice();
+    state.items = keep;
+    state.total = Math.max(0, state.total - 1);
+    render(state.items);
+
+    try {
+      const res = await fetch(API.remove(id), {
+        method: "DELETE",
+        headers: {
+          "Accept": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("token") || ""}`
+        }
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      refresh();
+    } catch (err) {
+      console.error("Failed to unfavourite:", err);
+      // rollback
+      state.items = prev;
+      state.total = prev.length;
+      render(state.items);
+      alert("Could not remove from favourites. Please try again.");
+    }
+  }
+
+  // --- helpers ---
+  function disable(el, on) { if (!el) return; el.disabled = !!on; el.style.opacity = on ? 0.6 : 1; el.style.pointerEvents = on ? "none" : "auto"; }
+  function thumb(v) { return (v.uuid ? `/api/v1/video/thumbnails/${encodeURIComponent(v.uuid)}.jpg` : `https://picsum.photos/seed/fav${Math.floor(Math.random()*10)}/640/360`); }
+  function fmtDuration(sec) {
+    const s = Number.isFinite(+sec) ? Math.max(0, Math.round(+sec)) : 0;
+    const m = Math.floor(s / 60), r = s % 60;
+    return `${String(m).padStart(2,"0")}:${String(r).padStart(2,"0")}`;
+  }
+  function meta(v) {
+    const parts = [];
+    if (v.views != null) parts.push(`${formatCompact(v.views)} views`);
+    if (v.published_at) parts.push(new Date(v.published_at).toLocaleDateString());
+    return parts.join(" • ");
+  }
+  function formatCompact(n) {
+    const x = Number(n) || 0;
+    if (x >= 1_000_000) return (x/1_000_000).toFixed(1).replace(/\.0$/,"")+"M";
+    if (x >= 1_000) return (x/1_000).toFixed(1).replace(/\.0$/,"")+"K";
+    return String(x);
+  }
+  function escapeHtml(s){return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");}
+  function escapeAttr(s){return String(s).replaceAll('"',"&quot;");}
+
+  // go!
+  init();
+})();
+</script>
+{% endblock %}

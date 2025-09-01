@@ -1,0 +1,248 @@
+{% extends "layout.html" %}
+{% block title %}Home · RPC Surgical Video Library{% endblock %}
+
+{% block content %}
+<!-- Hero / Header band -->
+<section class="mb-8">
+    <div class="card p-5 md:p-7 overflow-hidden relative">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
+            <div class="max-w-2xl">
+                <h1 class="text-2xl md:text-3xl font-extrabold tracking-tight text-[color:var(--text)]">
+                    Welcome to the RPC Surgical Video Library
+                </h1>
+                <p class="mt-2 text-[color:var(--text-muted)]">
+                    Browse curated surgical videos by experts. Browse and filter based on Ophthalmic sub-specialties and
+                    tags.
+                </p>
+            </div>
+            <div class="flex gap-2">
+                <a href="/upload" class="btn btn-primary">⬆️ Upload</a>
+                <a href="/favourites" class="btn btn-ghost">📚 Favourites</a>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Continue Watching -->
+<section class="mb-10">
+    <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xl md:text-2xl font-bold text-[color:var(--text)]">⏱️ Recently Viewed</h2>
+        <a class="text-sm no-underline hover:underline text-[color:var(--brand-600)]" href="/history">View all</a>
+    </div>
+    <div id="historyList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+        <!-- JS will populate; show skeletons initially -->
+        {% for _ in range(4) %}
+        <article class="card p-3 animate-pulse">
+            <div class="rounded-lg h-40 bg-[color:var(--border)] mb-3"></div>
+            <div class="h-4 bg-[color:var(--border)] rounded w-4/5 mb-2"></div>
+            <div class="h-3 bg-[color:var(--border)] rounded w-3/5"></div>
+        </article>
+        {% endfor %}
+    </div>
+</section>
+
+<!-- Top toolbar: filters + sort + quick chips -->
+<section class="mb-6">
+    <div class="glass p-3 md:p-4 rounded-xl flex flex-col gap-4">
+
+        <!-- Row 1: Category + Sort -->
+        <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+
+            <!-- Category selector -->
+            <div class="flex items-center gap-2">
+                <label for="categorySelect" class="label m-0">Category</label>
+                <select id="categorySelect" class="select max-w-xs"
+                    onchange="window.indexPage?.onCategoryChange?.(this.value)">
+                    <option value="">All</option>
+                    <option value="retina">Retina</option>
+                    <option value="cataract">Cataract</option>
+                    <option value="glaucoma">Glaucoma</option>
+                    <option value="cornea">Cornea</option>
+                    <option value="oculoplasty">Oculoplasty</option>
+                    <option value="pediatric">Pediatric</option>
+                </select>
+            </div>
+
+            <!-- Sort buttons -->
+            <div class="flex items-center gap-2">
+                <button data-sort="trending"
+                    class="sort-btn px-3 py-2 rounded-lg border border-[color:var(--border)] hover:bg-[color:var(--brand-50)] transition-colors">
+                    🔥 Trending
+                </button>
+                <button data-sort="recent"
+                    class="sort-btn px-3 py-2 rounded-lg border border-[color:var(--border)] hover:bg-[color:var(--brand-50)] transition-colors">
+                    🆕 Recent
+                </button>
+                <button data-sort="most_viewed"
+                    class="sort-btn px-3 py-2 rounded-lg border border-[color:var(--border)] hover:bg-[color:var(--brand-50)] transition-colors">
+                    👁️ Most Viewed
+                </button>
+            </div>
+        </div>
+
+        <!-- Row 2: Quick chips + Active tag filters -->
+        <div class="flex flex-wrap gap-3 items-center justify-between">
+            <!-- Quick filter chips -->
+            <div id="quickChips" class="chips flex flex-wrap gap-2">
+                <button class="chip" onclick="window.indexPage?.onCategoryChange?.('retina')">Retina</button>
+                <button class="chip" onclick="window.indexPage?.onCategoryChange?.('cataract')">Cataract</button>
+                <button class="chip" onclick="window.indexPage?.onCategoryChange?.('cornea')">Cornea</button>
+                <button class="chip" onclick="window.indexPage?.onCategoryChange?.('pediatric')">Pediatric</button>
+            </div>
+
+            <!-- Active tag filters (injected dynamically by JS) -->
+            <div id="tagFilters" class="chips flex flex-wrap gap-2"></div>
+        </div>
+    </div>
+</section>
+
+
+
+
+<!-- Tabs: Trending / New / All -->
+<section class="mb-2">
+    <div class="flex items-center gap-2 border-b border-[color:var(--border)]">
+        <button
+            class="tab-btn px-4 py-2 font-semibold text-[color:var(--text)] border-b-2 border-transparent hover:border-[color:var(--brand-600)]"
+            data-tab="trendingTab" onclick="window.indexPage?.switchTab?.('trendingTab')">
+            📈 Trending
+        </button>
+        <button
+            class="tab-btn px-4 py-2 font-semibold text-[color:var(--text)] border-b-2 border-transparent hover:border-[color:var(--brand-600)]"
+            data-tab="newTab" onclick="window.indexPage?.switchTab?.('newTab')">
+            🆕 New
+        </button>
+        <button
+            class="tab-btn px-4 py-2 font-semibold text-[color:var(--text)] border-b-2 border-transparent hover:border-[color:var(--brand-600)]"
+            data-tab="allTab" onclick="window.indexPage?.switchTab?.('allTab')">
+            🎬 All
+        </button>
+    </div>
+</section>
+
+<!-- Tab panels -->
+<section class="mb-10">
+    <!-- Trending -->
+    <div id="trendingTab" class="tab-panel">
+        <div id="trending" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+            {% for _ in range(8) %}
+            <article class="card p-3 animate-pulse">
+                <div class="rounded-lg h-44 bg-[color:var(--border)] mb-3"></div>
+                <div class="h-4 bg-[color:var(--border)] rounded w-4/5 mb-2"></div>
+                <div class="h-3 bg-[color:var(--border)] rounded w-3/5"></div>
+            </article>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- New -->
+    <div id="newTab" class="tab-panel hidden">
+        <div id="recentGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5"></div>
+    </div>
+
+    <!-- All -->
+    <div id="allTab" class="tab-panel hidden">
+        <div class="flex items-center justify-between mb-4 mt-2">
+            <div class="text-sm text-[color:var(--text-muted)]">Showing <span id="totalCount">0</span> results</div>
+            <div class="flex items-center gap-2">
+                <button id="viewToggle" class="btn-ghost px-3 py-2 rounded-lg border border-[color:var(--border)]"
+                    onclick="window.indexPage?.toggleView?.()">
+                    Toggle Grid/List
+                </button>
+            </div>
+        </div>
+        <div id="videoList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5"></div>
+
+        <!-- Pagination -->
+        <div class="mt-8 flex items-center justify-center gap-4">
+            <button id="prevBtn" onclick="window.indexPage?.changePage?.(-1)"
+                class="btn-ghost px-4 py-2 rounded-lg border border-[color:var(--border)]">⏮ Prev</button>
+            <span id="pageNumber" class="text-lg font-medium text-[color:var(--text)]">Page 1</span>
+            <button id="nextBtn" onclick="window.indexPage?.changePage?.(1)"
+                class="btn-ghost px-4 py-2 rounded-lg border border-[color:var(--border)]">Next ⏭</button>
+        </div>
+    </div>
+</section>
+
+<!-- Sidebar (moves under on small screens) -->
+<aside class="mt-10">
+    <div class="card p-5">
+        <h3 class="text-lg font-bold text-[color:var(--text)] mb-3">📂 Browse by Category</h3>
+        <ul id="categoryList" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 text-sm"></ul>
+    </div>
+</aside>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // minimal tab controller so the page looks/feels polished even before index.js arrives
+    (function () {
+        const tabs = document.querySelectorAll(".tab-btn");
+        const panels = document.querySelectorAll(".tab-panel");
+        function switchTab(id) {
+            panels.forEach(p => p.classList.toggle("hidden", p.id !== id));
+            tabs.forEach(t => {
+                const active = t.getAttribute("data-tab") === id;
+                t.classList.toggle("border-[color:var(--brand-600)]", active);
+            });
+            // Persist selected tab for UX
+            localStorage.setItem("index.activeTab", id);
+        }
+        window.indexPage = Object.assign(window.indexPage || {}, { switchTab });
+
+        // restore last tab
+        const saved = localStorage.getItem("index.activeTab") || "trendingTab";
+        switchTab(saved);
+    })();
+</script>
+
+<!-- Your main page logic (populate lists, wire filters, etc.) -->
+<script src="{{ url_for('static', filename='js/index.js') }}"></script>
+
+<!-- Card template (for JS to clone & fill) -->
+<template id="videoCardTpl">
+    <article class="card p-0 overflow-hidden hover:shadow-xl transition-shadow">
+        <a class="block relative group" href="#">
+            <div class="w-full aspect-video bg-[color:var(--border)] relative overflow-hidden">
+                <img class="w-full h-full object-cover block" src="" alt="">
+                <span class="absolute bottom-2 right-2 text-xs px-2 py-1 rounded bg-black/70 text-white">00:00</span>
+                <span class="absolute top-2 left-2 badge">HD</span>
+            </div>
+            <div class="p-3">
+                <h3 class="font-semibold line-clamp-2 text-[color:var(--text)]"></h3>
+                <p class="text-sm mt-1 muted line-clamp-2"></p>
+                <div class="flex items-center justify-between mt-3">
+                    <div class="flex items-center gap-2">
+                        <img class="w-7 h-7 rounded-full" src="" alt="">
+                        <span class="text-sm muted"></span>
+                    </div>
+                    <span class="text-xs muted"></span>
+                </div>
+            </div>
+        </a>
+    </article>
+</template>
+
+<!-- List-row template (when toggled to list view) -->
+<template id="videoRowTpl">
+    <a class="card p-3 flex gap-3 hover:shadow-xl transition-shadow items-center" href="#">
+        <div class="w-48 shrink-0 aspect-video rounded-lg overflow-hidden bg-[color:var(--border)]">
+            <img class="w-full h-full object-cover block" src="" alt="">
+        </div>
+        <div class="min-w-0 flex-1">
+            <h3 class="font-semibold text-[color:var(--text)] line-clamp-1"></h3>
+            <p class="text-sm muted mt-1 line-clamp-2"></p>
+            <div class="flex items-center gap-2 mt-2">
+                <img class="w-6 h-6 rounded-full" src="" alt="">
+                <span class="text-xs muted"></span>
+                <span class="text-xs">•</span>
+                <span class="text-xs muted"></span>
+            </div>
+        </div>
+        <div class="text-xs muted shrink-0 text-right">
+            <div class="badge">HD</div>
+            <div class="mt-1">00:00</div>
+        </div>
+    </a>
+</template>
+{% endblock %}

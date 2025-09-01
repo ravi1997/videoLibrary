@@ -1,0 +1,15 @@
+/* app/static/css/styles.css */
+body {
+    font-family: Arial, sans-serif;
+    margin: 2rem;
+}
+
+.success-message {
+    color: green;
+    font-weight: bold;
+}
+
+.error-message {
+    color: red;
+    font-weight: bold;
+}

@@ -1,0 +1,380 @@
+{% extends "layout.html" %}
+{% block title %}Settings · RPC Surgical Video Library{% endblock %}
+
+{% block content %}
+<section class="mb-6">
+    <h1 class="text-2xl md:text-3xl font-extrabold text-[color:var(--text)]">Settings</h1>
+    <p class="muted mt-1">Manage your appearance, playback, notifications, and privacy.</p>
+</section>
+
+<section class="grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-6">
+    <!-- RIGHT: Account actions -->
+    <aside class="card p-4 space-y-4">
+        <h3 class="text-lg font-bold text-[color:var(--text)]">Account</h3>
+    
+        <div class="space-y-3">
+            <a class="btn-ghost w-full text-center px-3 py-2 rounded-lg border border-[color:var(--border)] no-underline"
+                href="/profile">Profile</a>
+            <a class="btn-ghost w-full text-center px-3 py-2 rounded-lg border border-[color:var(--border)] no-underline"
+                href="/favourites">Favourites</a>
+            <a class="btn-ghost w-full text-center px-3 py-2 rounded-lg border border-[color:var(--border)] no-underline"
+                href="/change-password">Change password</a>
+        </div>
+    
+        <hr class="hr" />
+    
+        <div class="space-y-3">
+            <a class="btn-ghost w-full text-center px-3 py-2 rounded-lg border border-[color:var(--danger)] text-[color:var(--danger)] no-underline"
+                href="javascript:void(0)" onclick="onLogoutClick()">Logout</a>
+            <a class="hidden btn-ghost w-full text-center px-3 py-2 rounded-lg border border-[color:var(--danger)] text-[color:var(--danger)] no-underline"
+                href="/delete-account">Delete account</a>
+        </div>
+    </aside>
+    
+    <!-- LEFT: Settings groups -->
+    <div class="space-y-6">
+
+        <!-- Appearance -->
+        <div class="card p-4 space-y-4">
+            <h2 class="text-lg font-bold text-[color:var(--text)]">Appearance</h2>
+
+            <div class="flex items-center justify-between">
+                <div>
+                    <div class="font-medium text-[color:var(--text)]">Theme</div>
+                    <div class="muted text-sm">Choose Light, Dark, or follow your system.</div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" class="chip" data-theme="light" aria-pressed="false">Light</button>
+                    <button type="button" class="chip" data-theme="dark" aria-pressed="false">Dark</button>
+                    <button type="button" class="chip" data-theme="system" aria-pressed="false">System</button>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between">
+                <div>
+                    <div class="font-medium text-[color:var(--text)]">Compact mode</div>
+                    <div class="muted text-sm">Denser layout for showing more on screen.</div>
+                </div>
+                <label class="inline-flex items-center gap-2 cursor-pointer">
+                    <input id="setCompact" type="checkbox" class="toggle">
+                    <span class="muted text-sm">Enable</span>
+                </label>
+            </div>
+        </div>
+
+        <!-- Playback -->
+        <div class="card p-4 space-y-4">
+            <h2 class="text-lg font-bold text-[color:var(--text)]">Playback</h2>
+
+            <div class="flex items-center justify-between">
+                <div>
+                    <div class="font-medium text-[color:var(--text)]">Autoplay next</div>
+                    <div class="muted text-sm">Automatically start the next recommended video.</div>
+                </div>
+                <label class="inline-flex items-center gap-2 cursor-pointer">
+                    <input id="setAutoplay" type="checkbox" class="toggle">
+                    <span class="muted text-sm">Enable</span>
+                </label>
+            </div>
+
+            <div class="flex items-center justify-between">
+                <div>
+                    <div class="font-medium text-[color:var(--text)]">Default quality</div>
+                    <div class="muted text-sm">Preferred resolution when available.</div>
+                </div>
+                <select id="setQuality" class="select min-w-[160px]">
+                    <option value="auto">Auto</option>
+                    <option value="360p">360p</option>
+                    <option value="480p">480p</option>
+                    <option value="720p">720p (HD)</option>
+                    <option value="1080p">1080p (FHD)</option>
+                    <option value="1440p">1440p (QHD)</option>
+                    <option value="2160p">2160p (4K)</option>
+                </select>
+            </div>
+
+            <div class="flex items-center justify-between">
+                <div>
+                    <div class="font-medium text-[color:var(--text)]">Default playback speed</div>
+                    <div class="muted text-sm">Your preferred speed for new videos.</div>
+                </div>
+                <select id="setSpeed" class="select min-w-[160px]">
+                    <option value="0.5x">0.5×</option>
+                    <option value="1.0x">1.0×</option>
+                    <option value="1.25x">1.25×</option>
+                    <option value="1.5x">1.5×</option>
+                    <option value="2.0x">2.0×</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Notifications -->
+        <div class="card p-4 space-y-4">
+            <h2 class="text-lg font-bold text-[color:var(--text)]">Notifications</h2>
+
+            <div class="flex items-center justify-between">
+                <div>
+                    <div class="font-medium text-[color:var(--text)]">Email updates</div>
+                    <div class="muted text-sm">Occasional updates about new content.</div>
+                </div>
+                <label class="inline-flex items-center gap-2 cursor-pointer">
+                    <input id="setEmail" type="checkbox" class="toggle">
+                    <span class="muted text-sm">Enable</span>
+                </label>
+            </div>
+
+            <div class="flex items-center justify-between">
+                <div>
+                    <div class="font-medium text-[color:var(--text)]">Weekly digest</div>
+                    <div class="muted text-sm">A summary of trending videos in your specialties.</div>
+                </div>
+                <label class="inline-flex items-center gap-2 cursor-pointer">
+                    <input id="setDigest" type="checkbox" class="toggle">
+                    <span class="muted text-sm">Enable</span>
+                </label>
+            </div>
+        </div>
+
+        <!-- Privacy -->
+        <div class="hidden card p-4 space-y-4">
+            <h2 class="text-lg font-bold text-[color:var(--text)]">Privacy</h2>
+
+            <div class="flex items-center justify-between">
+                <div>
+                    <div class="font-medium text-[color:var(--text)]">Private profile</div>
+                    <div class="muted text-sm">Hide your playlists and watch activity from others.</div>
+                </div>
+                <label class="inline-flex items-center gap-2 cursor-pointer">
+                    <input id="setPrivate" type="checkbox" class="toggle">
+                    <span class="muted text-sm">Enable</span>
+                </label>
+            </div>
+
+            <div class="flex items-center justify-between">
+                <div>
+                    <div class="font-medium text-[color:var(--text)]">Personalization</div>
+                    <div class="muted text-sm">Use your activity to improve recommendations.</div>
+                </div>
+                <label class="inline-flex items-center gap-2 cursor-pointer">
+                    <input id="setPersonalize" type="checkbox" class="toggle">
+                    <span class="muted text-sm">Allow</span>
+                </label>
+            </div>
+        </div>
+
+        <!-- Save -->
+        <div class="glass p-4 rounded-xl flex items-center justify-between">
+            <div id="saveMsg" class="muted text-sm">Changes are saved to your account.</div>
+            <div class="flex items-center gap-2">
+                <button id="btnReset" class="btn-ghost px-3 py-2 rounded-lg border border-[color:var(--border)]"
+                    type="button">Reset</button>
+                <button id="btnSave" class="btn btn-primary" type="button">Save settings</button>
+            </div>
+        </div>
+
+    </div>
+
+
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+        async function onLogoutClick() {
+                // Try to notify server; ignore failures
+                const token = localStorage.getItem("token");
+                try {
+                    await fetch("/api/v1/auth/logout", {
+                        method: "POST",
+                        headers: token ? { "Authorization": `Bearer ${token}` } : {},
+                    });
+                    localStorage.removeItem("token");
+                    localStorage.removeItem("user");
+                } catch {
+                    // ignore
+                }
+                // Redirect to login (or home if you prefer)
+                try { window.location.assign("/login"); } catch { window.location.href = "/login"; }
+            }
+    (function () {
+        // ---- utils ----
+        const $ = (s, r = document) => r.querySelector(s);
+        const getToken = () => localStorage.getItem("token") || "";
+        const withAuth = (opts = {}) => ({
+            ...opts,
+            headers: {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                ...(opts.headers || {}),
+                ...(getToken() ? { "Authorization": "Bearer " + getToken() } : {})
+            }
+        });
+
+        // ---- endpoints (adjust names if different in your app) ----
+        const API = {
+            get: "/api/v1/user/settings",   // GET -> returns settings JSON
+            save: "/api/v1/user/settings"   // PUT -> accepts settings JSON
+        };
+
+        // ---- dom ----
+        const saveMsg = $("#saveMsg");
+        const btnSave = $("#btnSave");
+        const btnReset = $("#btnReset");
+
+        // appearance
+        const themeBtns = document.querySelectorAll("[data-theme]");
+        const setCompact = $("#setCompact");
+
+        // playback
+        const setAutoplay = $("#setAutoplay");
+        const setQuality = $("#setQuality");
+        const setSpeed = $("#setSpeed");
+
+        // notifications
+        const setEmail = $("#setEmail");
+        const setDigest = $("#setDigest");
+
+        // privacy
+        const setPrivate = $("#setPrivate");
+        const setPersonalize = $("#setPersonalize");
+
+        // ---- local persistence fallback ----
+        function localGet() {
+            try {
+                return JSON.parse(localStorage.getItem("user.settings") || "{}");
+            } catch { return {}; }
+        }
+        function localSet(v) {
+            try { localStorage.setItem("user.settings", JSON.stringify(v)); } catch { }
+        }
+
+        // ---- state ----
+        let state = {
+            theme: "system",
+            compact: false,
+            autoplay: false,
+            quality: "auto",
+            speed: "1.0",
+            email_updates: false,
+            weekly_digest: false,
+            private_profile: false,
+            personalize: true
+        };
+
+        // ---- apply to UI ----
+        function applyToUI(s) {
+            // theme
+            themeBtns.forEach(b => b.setAttribute("aria-pressed", String(b.getAttribute("data-theme") === s.theme)));
+            document.documentElement.dataset.theme = s.theme; // your layout can read this
+            // compact
+            setCompact.checked = !!s.compact;
+
+            // playback
+            setAutoplay.checked = !!s.autoplay;
+            setQuality.value = s.quality || "auto";
+            setSpeed.value = String(s.speed || "1.0");
+
+            // notifications
+            setEmail.checked = !!s.email_updates;
+            setDigest.checked = !!s.weekly_digest;
+
+            // privacy
+            setPrivate.checked = !!s.private_profile;
+            setPersonalize.checked = !!s.personalize;
+        }
+
+        // ---- read from UI ----
+        function readFromUI() {
+            const activeTheme = [...themeBtns].find(b => b.getAttribute("aria-pressed") === "true");
+            return {
+                theme: activeTheme ? activeTheme.getAttribute("data-theme") : "system",
+                compact: !!setCompact.checked,
+                autoplay: !!setAutoplay.checked,
+                quality: setQuality.value || "auto",
+                speed: setSpeed.value || "1.0",
+                email_updates: !!setEmail.checked,
+                weekly_digest: !!setDigest.checked,
+                private_profile: !!setPrivate.checked,
+                personalize: !!setPersonalize.checked
+            };
+        }
+
+        // ---- load ----
+        async function load() {
+            saveMsg.textContent = "Loading your settings…";
+            try {
+                const res = await fetch(API.get, withAuth({ method: "GET" }));
+                if (res.status === 401) return location.href = "/login";
+                if (!res.ok) throw new Error("http " + res.status);
+                const s = await res.json();
+                state = { ...state, ...s };
+                applyToUI(state);
+                localSet(state);
+                saveMsg.textContent = "Loaded ✓";
+            } catch (e) {
+                // fallback local
+                state = { ...state, ...localGet() };
+                applyToUI(state);
+                saveMsg.textContent = "Offline mode: using saved device preferences.";
+                console.warn(e);
+            }
+        }
+
+        // ---- save ----
+        async function save() {
+            const payload = readFromUI();
+            saveMsg.textContent = "Saving…";
+            btnSave.disabled = true;
+            try {
+                const res = await fetch(API.save, withAuth({ method: "PUT", body: JSON.stringify(payload) }));
+                if (res.status === 401) return location.href = "/login";
+                if (!res.ok) throw new Error("http " + res.status);
+                state = payload;
+                localSet(state);
+                applyToUI(state);
+                saveMsg.textContent = "Settings saved ✓";
+            } catch (e) {
+                // still store locally so user doesn’t lose changes
+                state = payload;
+                localSet(state);
+                applyToUI(state);
+                saveMsg.textContent = "Saved locally (network error).";
+                console.error(e);
+            } finally {
+                btnSave.disabled = false;
+            }
+        }
+
+        // ---- reset to defaults ----
+        function reset() {
+            state = {
+                theme: "system",
+                compact: false,
+                autoplay: false,
+                quality: "auto",
+                speed: "1.0",
+                email_updates: false,
+                weekly_digest: false,
+                private_profile: false,
+                personalize: true
+            };
+            applyToUI(state);
+            saveMsg.textContent = "Defaults restored. Click Save to keep.";
+        }
+
+        // ---- events ----
+        themeBtns.forEach(btn => {
+            btn.addEventListener("click", () => {
+                themeBtns.forEach(b => b.setAttribute("aria-pressed", "false"));
+                btn.setAttribute("aria-pressed", "true");
+                document.documentElement.dataset.theme = btn.getAttribute("data-theme");
+            });
+        });
+        btnSave?.addEventListener("click", save);
+        btnReset?.addEventListener("click", reset);
+
+        // go
+        load();
+    })();
+</script>
+{% endblock %}

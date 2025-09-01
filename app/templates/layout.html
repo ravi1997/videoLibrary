@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}RPC Surgical Video Library{% endblock %}</title>
+
+  <!-- Tailwind build -->
+  <link href="{{ url_for('static', filename='css/output.css') }}" rel="stylesheet" />
+
+  <!-- Consolidated theme + component styles (new) -->
+  <link href="{{ url_for('static', filename='css/theme.css') }}" rel="stylesheet" />
+
+  {% block head_extra %}{% endblock %}
+</head>
+
+<!-- The theme will be applied via classes on both <html> and <body> by layout.js -->
+
+<body class="min-h-screen flex flex-col">
+
+  <!-- Header / Navbar -->
+  <header id="mainHeader" class="navbar shadow-md sticky top-0 z-50">
+    <div class="container">
+      <!-- Left: Brand -->
+      <a href="/" class="brand">
+        <span class="brand-emoji">🚀</span>
+        <span class="brand-title">RPC Surgical Video Library</span>
+      </a>
+
+      <!-- Center: Search -->
+      <div class="nav-center">
+        <div class="search-wrap">
+          <input id="searchInput" type="text" placeholder="Search videos…" class="search-input"
+            aria-label="Search videos" />
+          <button class="btn btn-primary" onclick="searchVideos()">🔍 Search</button>
+        </div>
+      </div>
+
+      <!-- Right: Theme + Auth -->
+      <div class="nav-right">
+        <div class="flex flex-row gap-6">
+          <!-- Theme toggle -->
+          <button id="themeToggle" class="btn-ghost" title="Toggle theme" aria-label="Toggle theme">🌙</button>
+  
+          <!-- Auth area (filled by layout.js) -->
+          <div id="authArea"></div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Page Content -->
+  <main class="flex-1 container py-6">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    &copy; 2025 RPC Surgical Library. All rights reserved.
+  </footer>
+
+  <!-- Scripts -->
+  <script src="{{ url_for('static', filename='js/layout.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+
+</html>

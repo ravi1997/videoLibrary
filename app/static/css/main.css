@@ -1,0 +1,152 @@
+/* Base Reset */
+* {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+	font-family: "Segoe UI", Roboto, sans-serif;
+}
+
+body {
+	min-height: 100vh;
+	background: linear-gradient(135deg, #3498db, #8e44ad);
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	padding: 1rem;
+	color: #333;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+	body {
+		background: linear-gradient(135deg, #1e1e2f, #2b2b4a);
+		color: #ddd;
+	}
+
+	.login-form {
+		background-color: #222;
+		color: #eee;
+	}
+
+	.forminput {
+		background: none;
+		color: #eee;
+		border-color: #666;
+	}
+
+	.forminput::placeholder {
+		color: #999;
+	}
+
+	.bottom-text a {
+		color: #80caff;
+	}
+}
+
+/* Login form layout */
+.login-form {
+	width: 100%;
+	max-width: 400px;
+	padding: 3rem 2.5rem;
+	background: #f9f9f9;
+	border-radius: 12px;
+	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+	position: relative;
+}
+
+.login-form h1 {
+	text-align: center;
+	font-size: 1.8rem;
+	margin-bottom: 2rem;
+}
+
+/* Input wrapper */
+.inputb {
+	position: relative;
+	margin-bottom: 1.5rem;
+}
+
+.forminput {
+	width: 100%;
+	padding: 0.75rem;
+	border: 1.8px solid #bbb;
+	border-radius: 6px;
+	font-size: 1rem;
+	transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.forminput:focus {
+	border-color: #3498db;
+	outline: none;
+	box-shadow: 0 0 5px rgba(52, 152, 219, 0.4);
+}
+
+.inputb span::before {
+	content: attr(data-placeholder-1);
+	position: absolute;
+	top: 50%;
+	left: 0.75rem;
+	transform: translateY(-50%);
+	color: #aaa;
+	pointer-events: none;
+	transition: all 0.3s ease;
+}
+
+.inputb input:focus+span::before,
+.inputb input.focus+span::before {
+	top: -12px;
+	font-size: 0.75rem;
+	color: #3498db;
+}
+
+/* Button */
+.loginbtn {
+	display: block;
+	width: 100%;
+	padding: 0.75rem;
+	background: linear-gradient(135deg, #3498db, #8e44ad);
+	color: #fff;
+	border: none;
+	border-radius: 6px;
+	font-size: 1rem;
+	cursor: pointer;
+	transition: background-position 0.4s ease;
+	background-size: 200%;
+}
+
+.loginbtn:hover {
+	background-position: right;
+}
+
+/* Bottom text */
+.bottom-text {
+	margin-top: 2rem;
+	text-align: center;
+	font-size: 0.875rem;
+	color: #666;
+}
+
+.bottom-text a {
+	color: #3498db;
+	text-decoration: none;
+}
+
+.bottom-text a:hover {
+	text-decoration: underline;
+}
+
+/* Validation */
+input:invalid {
+	border-color: #e74c3c;
+}
+
+input:invalid:focus {
+	box-shadow: 0 0 6px rgba(231, 76, 60, 0.5);
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+	.login-form {
+		padding: 2rem 1.5rem;
+	}
+}

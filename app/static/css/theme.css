@@ -1,0 +1,512 @@
+/* ==========================================================================
+   RPC Surgical Video Library — Unified Theme & Components
+   - Light/Dark via CSS variables
+   - Works with Tailwind's dark: classes when html/body has .dark
+   - Zero @apply; pure CSS so it works without a Tailwind build step
+   ========================================================================== */
+
+/* ---------- Color tokens ---------- */
+:root {
+    /* Base palette (light) */
+    --bg: #f7f7f8;
+    --bg-elev: #ffffff;
+    --text: #0f172a;
+    /* slate-900 */
+    --text-muted: #334155;
+    /* slate-700 */
+    --border: #e5e7eb;
+    /* gray-200 */
+    --shadow: rgba(0, 0, 0, 0.06);
+
+    /* Brand */
+    --brand: #2563eb;
+    /* blue-600 */
+    --brand-600: #2563eb;
+    --brand-700: #1d4ed8;
+    --brand-50: #eff6ff;
+
+    /* Accents / states */
+    --accent: #8b5cf6;
+    /* violet-500 */
+    --success: #16a34a;
+    --warn: #d97706;
+    --danger: #dc2626;
+
+    /* Inputs */
+    --input-bg: #ffffff;
+    --input-text: #0f172a;
+    --input-border: #e5e7eb;
+    --input-focus: #2563eb33;
+
+    /* Cards/Glass */
+    --glass-bg: rgba(255, 255, 255, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.4);
+
+    /* Footer */
+    --footer-bg: #ffffff;
+    --footer-text: #334155;
+}
+
+/* Dark mode variables (support both .dark and [data-theme="dark"]) */
+html.dark,
+body.dark,
+html[data-theme="dark"],
+body[data-theme="dark"] {
+    --bg: #0b1020;
+    /* deep navy */
+    --bg-elev: #111827;
+    /* gray-900 */
+    --text: #e5e7eb;
+    /* gray-200 */
+    --text-muted: #94a3b8;
+    /* slate-400 */
+    --border: #1f2937;
+    /* gray-800 */
+    --shadow: rgba(0, 0, 0, 0.35);
+
+    --brand: #60a5fa;
+    /* blue-400 */
+    --brand-600: #3b82f6;
+    --brand-700: #2563eb;
+    --brand-50: #0b1220;
+
+    --accent: #a78bfa;
+    /* violet-400 */
+    --success: #22c55e;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+
+    --input-bg: #111827;
+    /* gray-900 */
+    --input-text: #e5e7eb;
+    --input-border: #1f2937;
+    --input-focus: #3b82f633;
+
+    --glass-bg: rgba(17, 24, 39, 0.65);
+    --glass-border: rgba(255, 255, 255, 0.08);
+
+    --footer-bg: #0b1220;
+    --footer-text: #94a3b8;
+}
+
+/* Respect user preference on first load; layout.js will take over afterwards */
+@media (prefers-color-scheme: dark) {
+    :root:not(.force-light) {
+        color-scheme: dark;
+    }
+}
+
+/* ---------- Base resets ---------- */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    height: 100%;
+}
+
+html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    color-scheme: light dark;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family:
+        ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+        "Apple Color Emoji", "Segoe UI Emoji";
+    line-height: 1.55;
+    transition: background-color .25s ease, color .25s ease, border-color .25s ease;
+}
+
+/* Typography defaults */
+h1,
+h2,
+h3,
+h4 {
+    color: var(--text);
+    margin: 0 0 .5rem 0;
+    line-height: 1.2;
+}
+
+p {
+    color: var(--text-muted);
+    margin: 0 0 1rem 0;
+}
+
+a {
+    color: var(--brand-600);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+/* ---------- Layout helpers ---------- */
+.container {
+    max-width: 90%;
+    margin-inline: auto;
+    padding-inline: 1rem;
+}
+
+/* ---------- Navbar ---------- */
+.navbar {
+    position: sticky;
+    top: 0;
+    backdrop-filter: saturate(180%) blur(8px);
+    background: color-mix(in oklab, var(--bg-elev) 92%, transparent);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 6px 24px var(--shadow);
+}
+
+.navbar .container {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    min-height: 64px;
+}
+
+/* Brand */
+.brand {
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .5rem .75rem;
+    border-radius: .75rem;
+    color: var(--text);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.brand:hover {
+    background: color-mix(in oklab, var(--brand-50) 50%, transparent);
+    text-decoration: none;
+}
+
+.brand-emoji {
+    font-size: 1.15rem;
+}
+
+.brand-title {
+    font-weight: 700;
+    letter-spacing: .2px;
+}
+
+/* Navbar center & right clusters */
+.nav-center {
+    flex: 1 1 auto;
+    display: flex;
+    justify-content: center;
+}
+
+.nav-right {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+
+/* Search */
+.search-wrap {
+    display: flex;
+    gap: .5rem;
+    width: min(720px, 100%);
+}
+
+.search-input {
+    flex: 1 1 auto;
+    height: 40px;
+    padding: 0 .75rem;
+    border-radius: .75rem;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg);
+    color: var(--input-text);
+    outline: none;
+    transition: box-shadow .2s ease, border-color .2s ease, background-color .2s ease;
+}
+
+.search-input::placeholder {
+    color: color-mix(in oklab, var(--input-text) 55%, transparent);
+}
+
+.search-input:focus {
+    border-color: var(--brand-600);
+    box-shadow: 0 0 0 4px var(--input-focus);
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .5rem;
+    padding: .55rem .9rem;
+    border-radius: .75rem;
+    border: 1px solid transparent;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease, transform .02s ease-in;
+}
+
+.btn:active {
+    transform: translateY(1px);
+}
+
+.btn-primary {
+    composes: btn;
+    background: var(--brand-600);
+    color: #fff;
+    border-color: color-mix(in oklab, var(--brand-600) 85%, #000);
+}
+
+.btn-primary:hover {
+    background: var(--brand-700);
+}
+
+.btn-ghost {
+    composes: btn;
+    background: transparent;
+    color: var(--text);
+    border-color: var(--border);
+}
+
+.btn-ghost:hover {
+    background: color-mix(in oklab, var(--brand-50) 40%, transparent);
+    border-color: color-mix(in oklab, var(--border) 70%, var(--brand-600) 30%);
+}
+
+/* ---------- Cards / Surfaces ---------- */
+.card {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    padding: 1rem;
+    box-shadow: 0 10px 24px var(--shadow);
+}
+
+.glass {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(8px);
+    border-radius: 1rem;
+}
+
+/* ---------- Chips / Pills ---------- */
+.chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+}
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    padding: .35rem .6rem;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--brand-50) 65%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 70%, var(--brand-600) 30%);
+    color: var(--text);
+    font-size: .925rem;
+}
+
+.chip .close {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.chip .close:hover {
+    color: var(--danger);
+}
+
+/* ---------- Tables ---------- */
+.table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow: hidden;
+    border-radius: .75rem;
+    border: 1px solid var(--border);
+}
+
+.table th,
+.table td {
+    padding: .75rem .9rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.table thead th {
+    background: color-mix(in oklab, var(--brand-50) 45%, transparent);
+    text-align: left;
+    color: var(--text);
+    font-weight: 700;
+}
+
+.table tr:last-child td {
+    border-bottom: none;
+}
+
+/* Sort button for table headers */
+.sort-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    font: inherit;
+    background: transparent;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+}
+
+.sort-btn:hover {
+    color: var(--brand-700);
+}
+
+/* ---------- Forms ---------- */
+.input,
+.select,
+.textarea {
+    width: 100%;
+    padding: .6rem .75rem;
+    border-radius: .75rem;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg);
+    color: var(--input-text);
+    outline: none;
+    transition: border-color .2s ease, box-shadow .2s ease, background-color .2s ease, color .2s ease;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+    border-color: var(--brand-600);
+    box-shadow: 0 0 0 4px var(--input-focus);
+}
+
+.label {
+    display: block;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: .35rem;
+}
+
+/* Helper for inline field groups */
+.field-row {
+    display: flex;
+    gap: .75rem;
+    flex-wrap: wrap;
+}
+
+/* ---------- Badges ---------- */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .3rem .5rem;
+    border-radius: .5rem;
+    font-weight: 600;
+    border: 1px solid var(--border);
+    background: color-mix(in oklab, var(--bg-elev) 85%, transparent);
+}
+
+.badge.success {
+    color: var(--success);
+    border-color: color-mix(in oklab, var(--success) 35%, var(--border));
+}
+
+.badge.warn {
+    color: var(--warn);
+    border-color: color-mix(in oklab, var(--warn) 35%, var(--border));
+}
+
+.badge.danger {
+    color: var(--danger);
+    border-color: color-mix(in oklab, var(--danger) 35%, var(--border));
+}
+
+/* ---------- Footer ---------- */
+.footer {
+    border-top: 1px solid var(--border);
+    background: var(--footer-bg);
+    color: var(--footer-text);
+    padding: 1rem;
+    text-align: center;
+}
+
+/* ---------- Utilities ---------- */
+.hidden {
+    display: none !important;
+}
+
+.muted {
+    color: var(--text-muted) !important;
+}
+
+.hr {
+    height: 1px;
+    background: var(--border);
+    border: none;
+    margin: 1rem 0;
+}
+
+/* ---------- Transitions for theme swap ---------- */
+.navbar,
+.card,
+.footer,
+.input,
+.select,
+.textarea,
+.search-input,
+.brand,
+.chip,
+.badge,
+.table,
+.btn,
+body {
+    transition:
+        background-color .25s ease,
+        color .25s ease,
+        border-color .25s ease,
+        box-shadow .25s ease;
+}
+
+/* ---------- Scrollbar theming (webkit) ---------- */
+*::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+*::-webkit-scrollbar-track {
+    background: color-mix(in oklab, var(--bg) 85%, transparent);
+}
+
+*::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--text) 12%, var(--border));
+    border-radius: 999px;
+    border: 3px solid color-mix(in oklab, var(--bg) 85%, transparent);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklab, var(--text) 18%, var(--border));
+}
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        transition: none !important;
+        scroll-behavior: auto !important;
+    }
+}
