@@ -1,345 +1,239 @@
 {% extends "layout.html" %}
-{% block title %}Create User · RPC Surgical Video Library{% endblock %}
+{% block title %}Register · RPC Surgical Video Library{% endblock %}
+
+{% block head_extra %}
+<style>
+    /* small polished helpers copied from login styles */
+    input.input:-webkit-autofill,
+    input.input:-webkit-autofill:hover,
+    input.input:-webkit-autofill:focus {
+        -webkit-text-fill-color: var(--text);
+        transition: background-color 5000s ease-in-out 0s;
+        box-shadow: 0 0 0px 1000px color-mix(in oklab, var(--surface) 96%, transparent) inset;
+    }
+
+    .fl-label { transition: transform .18s ease, color .18s ease, top .18s ease, font-size .18s ease; }
+    .elevated { box-shadow: 0 10px 30px rgba(0,0,0,.08), 0 2px 10px rgba(0,0,0,.04); border: 1px solid color-mix(in oklab, var(--border) 85%, transparent); }
+    .icon-chip { width:42px;height:42px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(180deg,var(--brand-500),var(--brand-600));color:#fff; }
+    /* Password strength progress styling */
+    progress#pwStrength { appearance: none; -webkit-appearance: none; height: 8px; border-radius: 999px; overflow: hidden; background: #e6e6e6; }
+    progress#pwStrength::-webkit-progress-bar { background: transparent; }
+    progress#pwStrength::-webkit-progress-value { background: linear-gradient(90deg,#ff6b6b,#ffd166,#06d6a0,#4cc9f0); }
+    progress#pwStrength.strength-0::-webkit-progress-value { background: #e6e6e6; }
+    progress#pwStrength.strength-1::-webkit-progress-value { background: #ff6b6b; }
+    progress#pwStrength.strength-2::-webkit-progress-value { background: #ffb86b; }
+    progress#pwStrength.strength-3::-webkit-progress-value { background: #06d6a0; }
+    progress#pwStrength.strength-4::-webkit-progress-value { background: #4cc9f0; }
+    /* make the error region focusable for assistive tech */
+    #reg_error[role="alert"]{ outline: none; }
+</style>
+{% endblock %}
 
 {% block content %}
-<section class="mb-6">
-    <h1 class="text-2xl md:text-3xl font-extrabold text-[color:var(--text)]">Create User</h1>
-    <p class="muted mt-1">Add a new user to the system.</p>
-</section>
+<section class="w-full max-w-md mx-auto mt-16 sm:mt-20 space-y-6">
+    <div class="mb-6 text-center flex flex-col items-center">
+        <div class="icon-chip mb-4"><span class="text-lg font-bold">RP</span></div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-[color:var(--text)]">Create account</h1>
+        <p class="muted mt-1 text-sm">Register for RPC Surgical Video Library</p>
+    </div>
 
-<section class="grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-6">
-
-    <!-- LEFT: Form -->
-    <div class="card p-5 md:p-6 rounded-2xl">
-        <form id="createUserForm" class="space-y-5" onsubmit="event.preventDefault(); createUser();">
-
-            <!-- Identity -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label class="label" for="fullName">Full name</label>
-                    <input id="fullName" class="input w-full" placeholder="Dr. A. B. Rao" required />
-                </div>
-                <div>
-                    <label class="label" for="username">Username</label>
-                    <input id="username" class="input w-full" placeholder="ab.rao" autocomplete="username" required />
-                </div>
+    <div class="card elevated rounded-2xl p-6 sm:p-8 backdrop-blur">
+    <form id="registerForm" class="flex flex-col gap-5" method="post" action="{{ request.path }}" novalidate onsubmit="event.preventDefault(); submitRegister();" aria-describedby="reg_error">
+            {% if csrf_token is defined %}{{ csrf_token() }}{% endif %}
+            <div class="relative">
+                <input id="reg_username" name="username" type="text" class="peer w-full pl-10 pr-3 pt-4 pb-2 text-[rgb(var(--text)_/_var(--tw-text-opacity))] bg-[color:var(--surface)] shadow-sm border border-[color:var(--border)] rounded-lg" placeholder=" " autocomplete="username" required />
+                <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-60">👤</span>
+                <label for="reg_username" class="fl-label pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 text-sm muted peer-placeholder-shown:top-1/2 peer-placeholder-shown:text-sm peer-focus:top-2 peer-focus:text-xs">Username</label>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label class="label" for="email">Email</label>
-                    <input id="email" type="email" class="input w-full" placeholder="you@example.com"
-                        autocomplete="email" required />
-                </div>
-                <div>
-                    <label class="label" for="mobile">Mobile</label>
-                    <input id="mobile" type="tel" class="input w-full" placeholder="+91 98xxxxxxx" autocomplete="tel" />
-                </div>
+            <div class="relative">
+                <input id="reg_email" name="email" type="email" class="peer w-full pl-10 pr-3 pt-4 pb-2 text-[rgb(var(--text)_/_var(--tw-text-opacity))] bg-[color:var(--surface)] shadow-sm border border-[color:var(--border)] rounded-lg" placeholder=" " autocomplete="email" required />
+                <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-60">📧</span>
+                <label for="reg_email" class="fl-label pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 text-sm muted peer-placeholder-shown:top-1/2 peer-placeholder-shown:text-sm peer-focus:top-2 peer-focus:text-xs">Email</label>
             </div>
 
-            <!-- Roles & Admin -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label class="label" for="roleInput">Roles</label>
-                    <div class="glass p-2 rounded-xl">
-                        <div id="roleChips" class="flex flex-wrap gap-2 mb-2"></div>
-                        <div class="flex items-center gap-2">
-                            <input id="roleInput" list="rolesList" class="input w-full"
-                                placeholder="Type a role and press Enter" />
-                            <button type="button"
-                                class="btn-ghost px-3 py-2 rounded-lg border border-[color:var(--border)]"
-                                onclick="addRoleFromInput()">Add</button>
-                        </div>
-                        <datalist id="rolesList"></datalist>
-                        <p class="muted text-xs mt-2">Examples: <em>Role.Admin</em>, <em>Role.Editor</em>,
-                            <em>Role.Viewer</em></p>
-                    </div>
-                </div>
-                <div>
-                    <label class="label">Admin access</label>
-                    <label class="inline-flex items-center gap-3 glass p-2 rounded-xl">
-                        <input id="isAdmin" type="checkbox" class="checkbox">
-                        <span class="muted">Grant <b>administrator</b> privileges</span>
-                    </label>
-                </div>
+            <div class="relative">
+                <input id="reg_employee" name="employee_id" type="text" class="peer w-full pl-10 pr-3 pt-4 pb-2 text-[rgb(var(--text)_/_var(--tw-text-opacity))] bg-[color:var(--surface)] shadow-sm border border-[color:var(--border)] rounded-lg" placeholder=" " autocomplete="off" />
+                <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-60">🆔</span>
+                <label for="reg_employee" class="fl-label pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 text-sm muted peer-placeholder-shown:top-1/2 peer-placeholder-shown:text-sm peer-focus:top-2 peer-focus:text-xs">Employee ID (optional)</label>
             </div>
 
-            <!-- Password -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label class="label" for="password">Password</label>
-                    <div class="relative">
-                        <input id="password" type="password" class="input w-full pr-16" placeholder="••••••••"
-                            autocomplete="new-password" required />
-                        <button type="button"
-                            class="absolute right-2 top-1/2 -translate-y-1/2 text-sm muted px-2 py-1 rounded hover:bg-[color:var(--brand-50)]"
-                            data-toggle="#password">Show</button>
-                    </div>
-                    <p id="pwHelp" class="muted text-xs mt-1">At least 8 characters; use a mix of letters, numbers, and
-                        symbols.</p>
-                </div>
-                <div>
-                    <label class="label" for="confirm">Confirm password</label>
-                    <div class="relative">
-                        <input id="confirm" type="password" class="input w-full pr-16" placeholder="••••••••"
-                            autocomplete="new-password" required />
-                        <button type="button"
-                            class="absolute right-2 top-1/2 -translate-y-1/2 text-sm muted px-2 py-1 rounded hover:bg-[color:var(--brand-50)]"
-                            data-toggle="#confirm">Show</button>
-                    </div>
-                </div>
+            <div class="relative">
+                <input id="reg_mobile" name="mobile" type="tel" pattern="^\+?[0-9\s\-]{7,15}$" maxlength="15" inputmode="tel" class="peer w-full pl-10 pr-3 pt-4 pb-2 text-[rgb(var(--text)_/_var(--tw-text-opacity))] bg-[color:var(--surface)] shadow-sm border border-[color:var(--border)] rounded-lg" placeholder=" " autocomplete="tel" />
+                <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-60">📱</span>
+                <label for="reg_mobile" class="fl-label pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 text-sm muted peer-placeholder-shown:top-1/2 peer-placeholder-shown:text-sm peer-focus:top-2 peer-focus:text-xs">Mobile (optional)</label>
             </div>
 
-            <!-- Errors -->
-            <div id="formErrors" class="hidden text-sm text-[color:var(--danger)]"></div>
+            <div class="relative">
+                <input id="reg_password" name="password" type="password" aria-required="true" class="peer w-full pl-10 pr-24 pt-4 pb-2 text-[rgb(var(--text)_/_var(--tw-text-opacity))] bg-[color:var(--surface)] shadow-sm border border-[color:var(--border)] rounded-lg" placeholder=" " autocomplete="new-password" required />
+                <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-60">🔒</span>
+                <label for="reg_password" class="fl-label pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 text-sm muted peer-placeholder-shown:top-1/2 peer-placeholder-shown:text-sm peer-focus:top-2 peer-focus:text-xs">Password</label>
+                <button type="button" id="reg_toggle_pwd" class="absolute right-3 top-1/2 -translate-y-1/2 text-xs px-2 py-1 rounded muted" aria-label="Show password" aria-pressed="false">Show</button>
+            </div>
 
-            <!-- Actions -->
-            <div class="glass p-3 rounded-xl flex flex-wrap items-center justify-end gap-2">
-                <button type="button" class="btn-ghost px-4 py-2 rounded-lg border border-[color:var(--border)]"
-                    onclick="document.getElementById('createUserForm').reset(); resetRoles(); resetErrors();">
-                    Reset
-                </button>
-                <button id="btnSubmit" type="submit" class="btn btn-primary">Create user</button>
+            <div class="relative">
+                <input id="reg_confirm_password" name="confirm_password" type="password" aria-required="true" class="peer w-full pl-10 pr-20 pt-4 pb-2 text-[rgb(var(--text)_/_var(--tw-text-opacity))] bg-[color:var(--surface)] shadow-sm border border-[color:var(--border)] rounded-lg" placeholder=" " autocomplete="new-password" required aria-describedby="confirmHelp" />
+                <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-60">🔁</span>
+                <label for="reg_confirm_password" class="fl-label pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 text-sm muted peer-placeholder-shown:top-1/2 peer-placeholder-shown:text-sm peer-focus:top-2 peer-focus:text-xs">Confirm password</label>
+                <button type="button" id="reg_toggle_confirm" class="absolute right-3 top-1/2 -translate-y-1/2 text-xs px-2 py-1 rounded muted" aria-label="Show confirm password" aria-pressed="false">Show</button>
+                <p id="confirmHelp" class="muted text-xs mt-2 sr-only">Re-enter your password to confirm.</p>
+            </div>
+
+            <!-- Password strength -->
+            <div aria-hidden="false">
+                <label class="sr-only" for="pwStrength">Password strength</label>
+                <progress id="pwStrength" class="w-full h-2 rounded mt-1 strength-0" value="0" max="4" aria-hidden="false" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0"></progress>
+                <p id="pwStrengthText" class="muted text-xs mt-1">Use at least 8 characters with a mix of letters, numbers and symbols.</p>
+            </div>
+
+            <p id="reg_error" role="alert" aria-live="polite" tabindex="-1" class="mt-1 text-sm hidden text-red-600 dark:text-red-400"></p>
+
+            <button id="regSubmit" type="submit" class="btn btn-primary w-full py-3 text-base font-semibold">Create account</button>
+
+            <div class="text-center mt-2 text-sm">
+                <span class="muted">Already have an account?</span>
+                <a href="/login" class="text-[color:var(--brand-600)] ml-2">Sign in</a>
             </div>
         </form>
     </div>
-
-    <!-- RIGHT: Quick tips -->
-    <aside class="card p-5 md:p-6 rounded-2xl space-y-3">
-        <h2 class="text-lg font-bold text-[color:var(--text)]">Tips</h2>
-        <ul class="space-y-2 text-sm muted">
-            <li>Use the person’s institutional email whenever possible.</li>
-            <li>Prefer usernames that are short and unique.</li>
-            <li>Assign the minimum roles needed. Only enable <b>Admin</b> when necessary.</li>
-        </ul>
-    </aside>
-
 </section>
-
-<!-- Modal Dialog -->
-<div id="alertDialog" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50">
-    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
-        <h2 id="alertTitle" class="text-lg font-bold mb-2">Message</h2>
-        <p id="alertMessage" class="text-sm"></p>
-        <div class="mt-4 flex justify-end gap-2">
-            <a id="alertLink" href="#"
-                class="hidden btn-ghost px-4 py-2 rounded-lg border border-[color:var(--border)]">View</a>
-            <button id="alertClose"
-                class="px-4 py-2 rounded bg-[color:var(--brand-600)] text-white hover:opacity-90">OK</button>
-        </div>
-    </div>
-</div>
-{% endblock %}
 
 {% block scripts %}
 <script>
-    (() => {
-        // ---------- Config ----------
-        const API_CREATE = "/api/v1/users";   // POST
-        const API_ROLES = "/api/v1/roles";   // GET (optional – will fall back if missing)
+    // Improve form UX: toggles, live validation, strength meter, enable/disable submit
+    (function () {
+    const pwd = document.getElementById('reg_password');
+    const cpwd = document.getElementById('reg_confirm_password');
+    const toggle = document.getElementById('reg_toggle_pwd');
+    const toggleC = document.getElementById('reg_toggle_confirm');
+    const submitBtn = document.getElementById('regSubmit');
+    const err = document.getElementById('reg_error');
+    const strength = document.getElementById('pwStrength');
+    const strengthText = document.getElementById('pwStrengthText');
 
-        // ---------- DOM ----------
-        const $ = (s, r = document) => r.querySelector(s);
-        const form = $("#createUserForm");
-        const fullName = $("#fullName");
-        const username = $("#username");
-        const email = $("#email");
-        const mobile = $("#mobile");
-        const isAdmin = $("#isAdmin");
-        const pw = $("#password");
-        const confirm = $("#confirm");
-        const btnSubmit = $("#btnSubmit");
-        const formErrors = $("#formErrors");
-
-        const roleInput = $("#roleInput");
-        const roleChips = $("#roleChips");
-        const rolesList = $("#rolesList");
-
-        // Dialog
-        const dialog = $("#alertDialog");
-        const alertTitle = $("#alertTitle");
-        const alertMessage = $("#alertMessage");
-        const alertClose = $("#alertClose");
-        const alertLink = $("#alertLink");
-
-        // ---------- Roles (chip set) ----------
-        const roles = new Set();
-
-        function sanitizeRole(s) {
-            return String(s || "").trim().replace(/\s+/g, " ").slice(0, 50);
+        function setErr(msg) {
+            if (!msg) { err.classList.add('hidden'); err.textContent = ''; }
+            else { err.textContent = msg; err.classList.remove('hidden'); err.focus(); }
         }
-        function addRoleFromInput() {
-            const v = sanitizeRole(roleInput.value);
-            if (!v) return;
-            roles.add(v);
-            roleInput.value = "";
-            renderRoleChips();
+
+        function toggleInputVisibility(input, btn) {
+            if (!input || !btn) return;
+            btn.addEventListener('click', () => {
+                const isPwd = input.getAttribute('type') === 'password';
+                input.setAttribute('type', isPwd ? 'text' : 'password');
+                btn.textContent = isPwd ? 'Hide' : 'Show';
+                btn.setAttribute('aria-pressed', String(isPwd));
+            });
         }
-        function removeRole(v) {
-            roles.delete(v);
-            renderRoleChips();
+        toggleInputVisibility(pwd, toggle);
+        toggleInputVisibility(cpwd, toggleC);
+
+        function scorePassword(s) {
+            let score = 0;
+            if (!s) return 0;
+            if (s.length >= 8) score++;
+            if (/[a-z]/.test(s) && /[A-Z]/.test(s)) score++;
+            if (/\d/.test(s)) score++;
+            if (/[^A-Za-z0-9]/.test(s)) score++;
+            return Math.min(score, 4);
         }
-        function resetRoles() {
-            roles.clear();
-            renderRoleChips();
+
+        function updateStrength() {
+            const s = scorePassword(pwd.value);
+            strength.value = s;
+            strength.setAttribute('aria-valuenow', String(s));
+            // update class to style color
+            strength.className = 'w-full h-2 rounded mt-1 strength-' + s;
+            const labels = ['Very weak', 'Weak', 'Okay', 'Good', 'Strong'];
+            strengthText.textContent = labels[s];
         }
-        function renderRoleChips() {
-            const frag = document.createDocumentFragment();
-            if (roles.size === 0) {
-                const span = document.createElement("span");
-                span.className = "muted text-sm";
-                span.textContent = "No roles selected";
-                frag.appendChild(span);
+
+        function validateForm() {
+            setErr('');
+            updateStrength();
+            const emailEl = document.getElementById('reg_email');
+            const usernameEl = document.getElementById('reg_username');
+
+            const usernameVal = usernameEl ? usernameEl.value.trim() : '';
+            const emailVal = emailEl ? emailEl.value.trim() : '';
+            const pwdVal = pwd ? pwd.value : '';
+            const cpwdVal = cpwd ? cpwd.value : '';
+
+            // required fields
+            if (!usernameVal) {
+                setErr('Username is required.');
+                usernameEl && usernameEl.setAttribute('aria-invalid', 'true');
+                return false;
+            } else { usernameEl && usernameEl.removeAttribute('aria-invalid'); }
+
+            if (!emailVal) {
+                setErr('Email is required.');
+                emailEl && emailEl.setAttribute('aria-invalid', 'true');
+                return false;
+            } else { emailEl && emailEl.removeAttribute('aria-invalid'); }
+
+            if (!pwdVal) {
+                setErr('Password is required.');
+                pwd && pwd.setAttribute('aria-invalid', 'true');
+                return false;
+            } else { pwd && pwd.removeAttribute('aria-invalid'); }
+
+            // confirm validity
+            if (pwdVal && cpwdVal && pwdVal !== cpwdVal) {
+                cpwd.setCustomValidity('Passwords do not match.');
+                setErr('Passwords do not match.');
+                cpwd.setAttribute('aria-invalid', 'true');
+                return false;
             } else {
-                [...roles].forEach(r => {
-                    const chip = document.createElement("span");
-                    chip.className = "chip inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-[color:var(--brand-50)] text-[color:var(--brand-700)]";
-                    chip.innerHTML = `
-          <span>${escapeHtml(r.replace(/^Role\./i, ""))}</span>
-          <button type="button" class="ml-2 text-[color:var(--danger)]" aria-label="Remove ${escapeAttr(r)}" onclick="removeRole('${escapeAttr(r)}')">&times;</button>
-        `;
-                    frag.appendChild(chip);
-                });
+                cpwd.setCustomValidity(''); cpwd.removeAttribute('aria-invalid');
             }
-            roleChips.replaceChildren(frag);
-        }
-        window.addRoleFromInput = addRoleFromInput;
-        window.removeRole = removeRole;
-        resetRoles();
 
-        // Load datalist options (optional)
-        (async function populateRoleDatalist() {
-            try {
-                const res = await fetch(API_ROLES, { headers: { Accept: "application/json" } });
-                if (!res.ok) throw 0;
-                const data = await res.json();
-                const arr = Array.isArray(data) ? data : [];
-                const frag = document.createDocumentFragment();
-                arr.forEach(it => {
-                    const name = typeof it === "string" ? it : (it.name || it.id || "");
-                    if (!name) return;
-                    const opt = document.createElement("option");
-                    opt.value = name;
-                    frag.appendChild(opt);
-                });
-                rolesList.replaceChildren(frag);
-            } catch { /* ignore */ }
-        })();
+            if (pwdVal && pwdVal.length < 8) {
+                pwd.setCustomValidity('Password must be at least 8 characters.');
+                setErr('Password must be at least 8 characters.');
+                pwd.setAttribute('aria-invalid', 'true');
+                return false;
+            } else { pwd.setCustomValidity(''); pwd.removeAttribute('aria-invalid'); }
 
-        // Enter key to add role
-        roleInput?.addEventListener("keydown", (e) => {
-            if (e.key === "Enter") { e.preventDefault(); addRoleFromInput(); }
-        });
+            if (emailVal && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailVal)) {
+                setErr('Enter a valid email address.');
+                emailEl && emailEl.setAttribute('aria-invalid', 'true');
+                return false;
+            } else { emailEl && emailEl.removeAttribute('aria-invalid'); }
 
-        // ---------- Dialog ----------
-        function openDialog(title, msg, linkHref = null, linkText = "View") {
-            alertTitle.textContent = title;
-            alertMessage.textContent = msg;
-            if (linkHref) {
-                alertLink.href = linkHref;
-                alertLink.textContent = linkText;
-                alertLink.classList.remove("hidden");
-            } else {
-                alertLink.classList.add("hidden");
-            }
-            dialog.classList.remove("hidden");
-            dialog.classList.add("flex");
+            return true;
         }
-        function closeDialog() {
-            dialog.classList.add("hidden");
-            dialog.classList.remove("flex");
-        }
-        alertClose.addEventListener("click", closeDialog);
 
-        // ---------- Helpers ----------
-        function getToken() { return localStorage.getItem("token") || ""; }
-        function withAuth(opts = {}) {
-            return {
-                ...opts,
-                headers: {
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                    ...(opts.headers || {}),
-                    ...(getToken() ? { "Authorization": "Bearer " + getToken() } : {})
-                }
-            };
-        }
-        function resetErrors() {
-            formErrors.textContent = "";
-            formErrors.classList.add("hidden");
-        }
-        function showErrors(msg) {
-            formErrors.textContent = msg || "Please fix the errors above.";
-            formErrors.classList.remove("hidden");
-        }
-        function escapeHtml(s) {
-            return String(s)
-                .replaceAll("&", "&amp;")
-                .replaceAll("<", "&lt;")
-                .replaceAll(">", "&gt;")
-                .replaceAll('"', "&quot;")
-                .replaceAll("'", "&#039;");
-        }
-        function escapeAttr(s) { return String(s).replaceAll('"', "&quot;"); }
-
-        // Toggle password visibility
-        document.querySelectorAll("[data-toggle]").forEach(btn => {
-            const input = document.querySelector(btn.getAttribute("data-toggle"));
-            btn.addEventListener("click", () => {
-                input.type = input.type === "password" ? "text" : "password";
-                btn.textContent = input.type === "password" ? "Show" : "Hide";
+    [pwd, cpwd, document.getElementById('reg_email'), document.getElementById('reg_username')].forEach(el => {
+            if (!el) return;
+            el.addEventListener('input', () => {
+                const ok = validateForm();
+                submitBtn.disabled = !ok;
             });
         });
 
-        // ---------- Submit ----------
-        window.createUser = async function createUser() {
-            resetErrors();
+    // initial state
+    submitBtn.disabled = true;
+    // run validation once on load to set state correctly
+    document.addEventListener('DOMContentLoaded', () => {
+        const ok = validateForm();
+        submitBtn.disabled = !ok;
+    });
 
-            const body = {
-                full_name: fullName.value.trim(),
-                username: username.value.trim(),
-                email: email.value.trim(),
-                mobile: mobile.value.trim(),
-                is_admin: !!isAdmin.checked,
-                roles: [...roles],                       // array of strings
-                password: pw.value,                         // raw; backend should hash
-            };
-
-            // Client validation
-            const errs = [];
-            if (!body.full_name) errs.push("Full name is required.");
-            if (!body.username) errs.push("Username is required.");
-            if (!body.email) errs.push("Email is required.");
-            if (!body.password || body.password.length < 8) errs.push("Password must be at least 8 characters.");
-            if (pw.value !== confirm.value) errs.push("Passwords do not match.");
-            if (errs.length) { showErrors(errs.join(" ")); openDialog("Error", errs.join(" ")); return; }
-
-            btnSubmit.disabled = true; btnSubmit.textContent = "Creating…";
+        window.submitRegister = function submitRegister() {
+            const ok = validateForm();
+            if (!ok) return;
+            // disable to prevent double submit and show progress
+            submitBtn.disabled = true; const prev = submitBtn.textContent; submitBtn.textContent = 'Creating…';
             try {
-                const res = await fetch(API_CREATE, withAuth({ method: "POST", body: JSON.stringify(body) }));
-                const data = await res.json().catch(() => ({}));
-
-                if (!res.ok || data.error) {
-                    const msg = data.detail || data.message || data.error || "Failed to create user.";
-                    showErrors(msg);
-                    openDialog("Error", msg);
-                    return;
-                }
-
-                // Expect backend to return created user object (uuid/username)
-                const id = data.uuid || data.id || "";
-                const link = id ? `/profile/${encodeURIComponent(id)}` : null;
-
-                openDialog("Success", "User created successfully ✓", link, "Open profile");
-                form.reset(); resetRoles(); resetErrors();
-            } catch (e) {
-                console.error(e);
-                showErrors("Network error. Try again.");
-                openDialog("Error", "Network error. Try again.");
+                document.getElementById('registerForm').submit();
             } finally {
-                btnSubmit.disabled = false; btnSubmit.textContent = "Create user";
+                // re-enable after a short delay if submission did not navigate
+                setTimeout(() => { try { submitBtn.disabled = false; submitBtn.textContent = prev; } catch(e){} }, 2000);
             }
         };
     })();
 </script>
+{% endblock %}
+
 {% endblock %}
