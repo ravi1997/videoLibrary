@@ -24,7 +24,8 @@
     <div class="container">
       <!-- Left: Brand -->
       <a href="/" class="brand">
-        <span class="brand-emoji">🚀</span>
+        <img src="{{ url_for('static', filename='images/RPC LOGO 2021.png') }}" alt="RPC Surgical Video Library"
+          class="h-12 w-auto object-contain" loading="lazy" decoding="async" />
         <span class="brand-title">RPC Surgical Video Library</span>
       </a>
 
@@ -51,7 +52,7 @@
   </header>
 
   <!-- Page Content -->
-  <main class="flex-1 container py-6">
+  <main class="flex-1 container py-6 content-center">
     {% block content %}{% endblock %}
   </main>
 

@@ -1,3 +1,5 @@
+import re
+import uuid
 from datetime import datetime, timedelta, timezone
 import random
 from flask import Blueprint, current_app, make_response, render_template_string, request, jsonify
@@ -12,6 +14,13 @@ from flask_jwt_extended import (
 )
 from app.utils.decorator import require_roles
 from app.extensions import db
+from werkzeug.utils import secure_filename
+import os
+from sqlalchemy.exc import ProgrammingError, IntegrityError
+from flask import send_file
+
+from app.utils.services.cdac import cdac_service
+from app.utils.services.sms import send_sms
 
 auth_bp = Blueprint('auth_bp', __name__)
 user_schema = UserSchema()
@@ -111,6 +120,9 @@ def login():
                 current_app.logger.warning(
                     f"Login failed: No user found for identifier {identifier}")
                 return _htmx_or_json_error("Invalid credentials", 401)
+            if not user.is_verified:
+                current_app.logger.warning(f"Login failed: user {identifier} not verified by admin")
+                return _htmx_or_json_error("Account pending verification", 403)
             if not user.check_password(password):
                 current_app.logger.warning(
                     f"Login failed: Incorrect password for user {identifier}")
@@ -130,6 +142,9 @@ def login():
             current_app.logger.warning(
                 f"Login failed: Invalid OTP for mobile {mobile}")
             return _htmx_or_json_error("Invalid OTP", 401)
+        if not user.is_verified:
+            current_app.logger.warning(f"OTP login failed: user with mobile {mobile} not verified by admin")
+            return _htmx_or_json_error("Account pending verification", 403)
         if user.user_type == 'general' and password:
             current_app.logger.warning(
                 f"General user attempted password login for mobile {mobile}")
@@ -204,7 +219,8 @@ def generate_otp():
     if not mobile:
         return jsonify({"msg": "Mobile number required", "success": False}), 400
 
-    user = User.objects(mobile=mobile).first()
+    # Using SQLAlchemy (Postgres) instead of Mongo-style API
+    user = User.query.filter_by(mobile=mobile).first()
     if not user:
         return jsonify({"msg": "User with this mobile not found", "success": False}), 404
 
@@ -212,12 +228,491 @@ def generate_otp():
     otp_code = str(random.randint(100000, 999999))
     user.otp = otp_code
     user.otp_expiration = datetime.now(timezone.utc) + timedelta(minutes=5)
-    user.save()
+    try:
+        otp_status = send_sms(
+            mobile, f"OTP for RPC Surgical video Library is {otp_code}")
+        if otp_status != 200:
+            current_app.logger.warning(f"Failed to send OTP SMS to {mobile}")
+            return jsonify({"msg": "Failed to send OTP", "success": False}), 500
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Failed to save OTP to DB")
+        return jsonify({"msg": "internal server error", "success": False}), 500
 
     # TODO: Integrate SMS provider here to send OTP
     current_app.logger.debug(f"[DEBUG] OTP for {mobile}: {otp_code}")  # Logging only for development
 
     return jsonify({"msg": "OTP sent successfully", "success": True}), 200
+
+
+# -------------------- EMPLOYEE HELPERS / REG FLOW --------------------
+@auth_bp.route('/employee-lookup', methods=['POST'])
+def employee_lookup():
+    """
+    Unified employee / mobile lookup + OTP dispatch.
+
+    Scenarios:
+    1) employee_id only:
+         - Look in local DB.
+         - If not found -> query CDAC (external). If CDAC returns data, create user from it.
+         - If CDAC has no mobile AND client did not supply one -> ask client for mobile.
+         - Generate + persist OTP, send SMS.
+    2) employee_id + mobile (employee not in DB):
+         - Try CDAC first (optional – if you want to trust supplied mobile when CDAC lacks one).
+         - Create provisional employee user with supplied mobile.
+    3) mobile only (non‑permanent / general):
+         - Reuse existing user by mobile or create provisional general user.
+    Responses are normalized with an 'ok' flag and consistent status codes.
+    """
+    def json_error(msg, status=400, **extra):
+        payload = {'ok': False, 'msg': msg}
+        payload.update(extra)
+        return jsonify(payload), status
+
+    try:
+        data = request.get_json(force=True)
+    except Exception:
+        data = request.form or {}
+
+    emp_id = (data.get('employee_id') or '').strip() or None
+    mobile_in = (data.get('mobile') or '').strip() or None
+
+    # Basic validation
+    MOBILE_RE = re.compile(r'^\+?\d{8,15}$')
+    if mobile_in and not MOBILE_RE.match(mobile_in):
+        return json_error("invalid mobile format")
+
+    # Helper to split full name safely
+    def split_name(full: str):
+        if not full:
+            return ("", "")
+        parts = full.split()
+        if len(parts) == 1:
+            return (parts[0], "")
+        if len(parts) == 2:
+            return (parts[0], parts[1])
+        return (" ".join(parts[:-1]), parts[-1])
+
+    # (OTP generation removed from lookup flow; done explicitly via /generate-otp)
+    def assign_otp(user: User):  # retained for backward compatibility if referenced elsewhere
+        otp_code = str(random.randint(100000, 999999))
+        user.set_otp(otp_code)
+        return otp_code
+
+    # Branch 1 / 2: Have employee_id
+    if emp_id:
+        try:
+            user = User.query.filter_by(employee_id=emp_id).first()
+        except ProgrammingError:
+            current_app.logger.exception("employee_lookup: programming error")
+            return json_error("internal server error", 500)
+
+        if user:
+            changed = False
+            # Existing employee; maybe update missing mobile if a valid one supplied
+            if mobile_in and not user.mobile:
+                user.mobile = mobile_in
+                changed = True
+            if not user.mobile:
+                return json_error("mobile required to proceed", 400, mobile_required=True)
+            if changed:
+                try:
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                    current_app.logger.exception(
+                        "employee_lookup: failed to persist employee update")
+                    return json_error("internal server error", 500)
+            return jsonify({
+                'ok': True,
+                'found': True,
+                'existing': True,
+                'employee_id': emp_id,
+                'username': user.username,
+                'email': user.email,
+                'mobile': user.mobile,
+                'sent_otp': False  # OTP now deferred until /generate-otp
+            }), 200
+
+        # No local user: try external CDAC unless client already supplied a mobile and we choose to trust it.
+        cdac_data = None
+        if not mobile_in:
+            cdac_data = cdac_service(emp_id)
+            if not cdac_data:
+                # Could not resolve externally and no mobile to continue
+                return json_error("employee not found; mobile required", 404, mobile_required=True)
+
+        # Normalize fields from CDAC (if present) or fallback
+        if cdac_data:
+            # Some implementations wrap data under 'data'
+            payload = cdac_data.get('data') if isinstance(
+                cdac_data, dict) and 'data' in cdac_data else cdac_data
+            name_raw = payload.get('name') or ""
+            first, last = split_name(name_raw)
+            username = name_raw or f"user_{emp_id.lower()}"
+            mobile = payload.get('mobile_number') or mobile_in
+            email = payload.get('email_address')
+        else:
+            # Creating provisional employee from provided mobile only
+            username = f"user_{emp_id.lower()}"
+            mobile = mobile_in
+            email = None
+
+        if not mobile:
+            return json_error("mobile required (not provided by CDAC)", 400, mobile_required=True)
+        if not MOBILE_RE.match(mobile):
+            return json_error("invalid mobile format", 400)
+
+        # Check if mobile already belongs to an existing user; attach employee_id if vacant
+        existing_mobile_user = User.query.filter_by(mobile=mobile).first()
+        if existing_mobile_user and existing_mobile_user.employee_id and existing_mobile_user.employee_id != emp_id:
+            return json_error("mobile already in use by another user", 409)
+
+        if existing_mobile_user and not existing_mobile_user.employee_id:
+            user = existing_mobile_user
+            user.employee_id = emp_id
+            if email and not user.email:
+                user.email = email
+            if username and not user.username:
+                user.username = username
+        else:
+            user = User(
+                username=username,
+                email=email,
+                mobile=mobile,
+                employee_id=emp_id,
+                user_type='employee',
+                is_active=True,
+                is_verified=False,
+                document_submitted=False
+            )
+            db.session.add(user)
+
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            current_app.logger.exception(
+                "employee_lookup: failed to create/augment employee record (no OTP phase)")
+            return json_error("internal server error", 500)
+
+        return jsonify({
+            'ok': True,
+            'found': True,
+            'created': True,
+            'employee_id': emp_id,
+            'username': user.username,
+            'email': user.email,
+            'mobile': user.mobile,
+            'sent_otp': False  # defer OTP
+        }), 201
+
+    # Branch 3: mobile only (non-permanent / general)
+    if mobile_in:
+        mobile = mobile_in
+        existing = User.query.filter_by(mobile=mobile).first()
+        if existing:
+            user = existing
+        else:
+            user = User(
+                mobile=mobile,
+                user_type='general',
+                is_active=True,
+                is_verified=False,
+                document_submitted=False
+            )
+            db.session.add(user)
+
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            current_app.logger.exception(
+                "employee_lookup: failed to persist general user record (no OTP phase)")
+            return json_error("internal server error", 500)
+
+        return jsonify({
+            'ok': True,
+            'found': bool(existing),
+            'created_temp': not bool(existing),
+            'mobile': mobile,
+            'sent_otp': False  # defer OTP
+        }), 201 if not existing else 200
+
+    return json_error("employee_id or mobile required")
+
+@auth_bp.route('/verify-otp', methods=['POST'])
+def verify_otp():
+    try:
+        data = request.get_json(force=True)
+    except Exception:
+        data = request.form or {}
+
+    mobile = data.get('mobile')
+    code = data.get('otp')
+
+    if not mobile or not code:
+        return jsonify({'msg': 'mobile and otp required'}), 400
+
+    user = User.query.filter_by(mobile=mobile).first()
+    if not user:
+        return jsonify({'msg': 'user not found'}), 404
+
+    if not user.verify_otp(code):
+        return jsonify({'msg': 'invalid otp'}), 401
+
+    # mark mobile verified for the session — don't mark is_verified yet
+    user.otp = None
+    user.otp_expiration = None
+    db.session.commit()
+    return jsonify({'msg': 'otp verified', 'mobile': mobile}), 200
+
+
+@auth_bp.route('/create-account', methods=['POST'])
+def create_account():
+    """Finalize account after OTP verification.
+    Accepts: username, email, password, mobile, optional employee_id, optional temp_upload_id.
+    If temp_upload_id provided, any temp files are reassigned to this user and document_submitted flagged.
+    """
+    try:
+        data = request.get_json(force=True)
+    except Exception:
+        data = request.form or {}
+
+    required = ['username', 'email', 'password', 'mobile']
+    for r in required:
+        if not data.get(r):
+            return jsonify({'msg': f'{r} required'}), 400
+
+    employee_id = (data.get('employee_id') or '').strip() or None
+    mobile = (data.get('mobile') or '').strip()
+    temp_upload_id = (data.get('temp_upload_id') or '').strip() or None
+
+    # Find existing provisional user created during lookup phase
+    user = None
+    if employee_id:
+        user = User.query.filter_by(employee_id=employee_id).first()
+    if not user:
+        user = User.query.filter_by(mobile=mobile).first()
+    if not user:
+        return jsonify({'msg': 'provisional user not found'}), 404
+
+    user.username = data['username']
+    user.email = data['email']
+    user.set_password(data['password'])
+
+    # Link temp uploaded document if present
+    if temp_upload_id:
+        upload_dir = current_app.config.get('UPLOAD_FOLDER', '/tmp/uploads')
+        try:
+            os.makedirs(upload_dir, exist_ok=True)
+            # Find files starting with temp_<id>_
+            prefix = f"temp_{temp_upload_id}_"
+            moved_any = False
+            for fname in os.listdir(upload_dir):
+                if fname.startswith(prefix):
+                    src = os.path.join(upload_dir, fname)
+                    # remove temp prefix keep remainder after id underscore
+                    remainder = fname.split(prefix, 1)[-1]
+                    dest_name = f"{user.id}_{remainder}"
+                    dest = os.path.join(upload_dir, dest_name)
+                    try:
+                        os.replace(src, dest)
+                        moved_any = True
+                    except Exception:
+                        current_app.logger.exception('create_account: failed to move temp upload file')
+            if moved_any:
+                user.document_submitted = True
+        except Exception:
+            current_app.logger.exception('create_account: error processing temp uploads')
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('create_account: DB commit failed')
+        return jsonify({'msg': 'internal error'}), 500
+
+    return jsonify({'msg': 'account created', 'user_id': str(user.id)}), 200
+
+@auth_bp.route('/upload-temp-id', methods=['POST'])
+def upload_temp_id():
+    """Upload ID document before account creation.
+    Stores file with a temporary token and returns temp_upload_id.
+    Later /create-account can bind this to the created user.
+    """
+    if 'file' not in request.files:
+        return jsonify({'msg': 'file missing'}), 400
+    f = request.files['file']
+    if f.filename == '':
+        return jsonify({'msg': 'empty filename'}), 400
+    upload_dir = current_app.config.get('UPLOAD_FOLDER', '/tmp/uploads')
+    os.makedirs(upload_dir, exist_ok=True)
+    temp_id = uuid.uuid4().hex
+    safe = secure_filename(f.filename)
+    dest = os.path.join(upload_dir, f"temp_{temp_id}_{safe}")
+    try:
+        f.save(dest)
+    except Exception:
+        current_app.logger.exception('upload_temp_id: failed to save file')
+        return jsonify({'msg': 'save failed'}), 500
+    return jsonify({'msg': 'temp file stored', 'temp_upload_id': temp_id, 'filename': safe}), 200
+
+
+@auth_bp.route('/upload-id/<user_id>', methods=['POST'])
+def upload_id(user_id):
+    # Accept file upload (PDF) and mark document_submitted=True
+    if 'file' not in request.files:
+        return jsonify({'msg': 'file missing'}), 400
+    f = request.files['file']
+    if f.filename == '':
+        return jsonify({'msg': 'empty filename'}), 400
+    filename = secure_filename(f.filename)
+    upload_dir = current_app.config.get('UPLOAD_FOLDER', '/tmp/uploads')
+    os.makedirs(upload_dir, exist_ok=True)
+    dest = os.path.join(upload_dir, f"{user_id}_{filename}")
+    f.save(dest)
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'msg': 'user not found'}), 404
+    user.document_submitted = True
+    db.session.commit()
+    return jsonify({'msg': 'file uploaded'}), 200
+
+# -------------------- ADMIN VERIFICATION --------------------
+
+@auth_bp.get('/unverified')
+@require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
+def list_unverified(user_id):  # user_id injected by require_roles
+    """Return list of users pending admin verification.
+    Includes basic profile & document status. Sorted oldest first.
+    """
+    users = (User.query
+             .filter_by(is_verified=False)
+             .order_by(User.created_at.asc())
+             .all())
+    payload = []
+    for u in users:
+        payload.append({
+            'id': str(u.id),
+            'username': u.username,
+            'email': u.email,
+            'employee_id': u.employee_id,
+            'mobile': u.mobile,
+            'user_type': u.user_type,
+            'document_submitted': u.document_submitted,
+            'created_at': u.created_at.isoformat() if u.created_at else None,
+        })
+    return jsonify({'users': payload, 'count': len(payload)}), 200
+
+
+@auth_bp.post('/verify-user')
+@require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
+def verify_user(user_id):  # user_id injected by require_roles
+    """Mark a user as verified.
+    Body: {"user_id": "<uuid>"}
+    Returns updated user summary.
+    """
+    try:
+        data = request.get_json(force=True)
+    except Exception:
+        data = request.form or {}
+    target_id = (data.get('user_id') or '').strip()
+    if not target_id:
+        return jsonify({'msg': 'user_id required'}), 400
+    target = User.query.get(target_id)
+    if not target:
+        return jsonify({'msg': 'user not found'}), 404
+    if target.is_verified:
+        return jsonify({'msg': 'already verified'}), 200
+
+    # Optional rule: require document if general user
+    if target.user_type == 'general' and not target.document_submitted:
+        return jsonify({'msg': 'document required before verification'}), 409
+
+    target.is_verified = True
+    target.updated_at = datetime.now(timezone.utc)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('verify_user: DB commit failed')
+        return jsonify({'msg': 'internal error'}), 500
+
+    return jsonify({'msg': 'verified', 'user': {
+        'id': str(target.id),
+        'username': target.username,
+        'email': target.email,
+        'employee_id': target.employee_id,
+        'mobile': target.mobile,
+        'user_type': target.user_type,
+        'document_submitted': target.document_submitted,
+        'is_verified': target.is_verified,
+    }}), 200
+
+
+@auth_bp.get('/user-document/<user_id>')
+@require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
+def get_user_document(admin_user_id, user_id=None):  # decorator injects admin id as first arg
+    """Stream the first document file associated with the user (if any).
+    Looks for files named '<user_id>_...' in UPLOAD_FOLDER.
+    Returns 404 if none found.
+    """
+    target_id = user_id
+    if not target_id:
+        return jsonify({'msg': 'user_id missing'}), 400
+    upload_dir = current_app.config.get('UPLOAD_FOLDER', '/tmp/uploads')
+    if not os.path.isdir(upload_dir):
+        return jsonify({'msg': 'no documents'}), 404
+    # Find first matching file
+    for fname in os.listdir(upload_dir):
+        if fname.startswith(f"{target_id}_"):
+            path = os.path.join(upload_dir, fname)
+            try:
+                return send_file(path, as_attachment=False)
+            except Exception:
+                current_app.logger.exception('get_user_document: failed to send file')
+                return jsonify({'msg': 'error reading file'}), 500
+    return jsonify({'msg': 'document not found'}), 404
+
+
+@auth_bp.post('/discard-user')
+@require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
+def discard_user(admin_user_id):
+    """Delete (discard) a non-verified user and any uploaded documents.
+    Body: {"user_id": "<uuid>"}
+    Prevent deletion of already verified users.
+    """
+    try:
+        data = request.get_json(force=True)
+    except Exception:
+        data = request.form or {}
+    target_id = (data.get('user_id') or '').strip()
+    if not target_id:
+        return jsonify({'msg': 'user_id required'}), 400
+    target = User.query.get(target_id)
+    if not target:
+        return jsonify({'msg': 'user not found'}), 404
+    if target.is_verified:
+        return jsonify({'msg': 'cannot discard verified user'}), 409
+    upload_dir = current_app.config.get('UPLOAD_FOLDER', '/tmp/uploads')
+    if os.path.isdir(upload_dir):
+        for fname in list(os.listdir(upload_dir)):
+            if fname.startswith(f"{target_id}_"):
+                try:
+                    os.remove(os.path.join(upload_dir, fname))
+                except Exception:
+                    current_app.logger.warning('discard_user: failed to remove file %s', fname)
+    try:
+        db.session.delete(target)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('discard_user: DB delete failed')
+        return jsonify({'msg': 'internal error'}), 500
+    return jsonify({'msg': 'discarded'}), 200
 
 # -------------------- Helper --------------------
 
@@ -257,3 +752,77 @@ def about_me():
     user_id = jwt_data.get('sub', 'unknown')
     user = User.query.get_or_404(user_id)
     return jsonify(logged_in_as=user_schema.dump(user)), 200
+
+
+# -------------------- PASSWORD RESET --------------------
+@auth_bp.route('/forgot-password', methods=['POST'])
+def forgot_password():
+    """Initiate password reset. Accepts email or mobile. Sends token via chosen channel."""
+    try:
+        data = request.get_json(force=True)
+    except Exception:
+        data = request.form or {}
+
+    email = (data.get('email') or '').strip().lower()
+    mobile = (data.get('mobile') or '').strip()
+    if not email and not mobile:
+        return jsonify({'ok': False, 'msg': 'email or mobile required'}), 400
+
+    user = None
+    if email:
+        user = User.query.filter_by(email=email).first()
+    elif mobile:
+        user = User.query.filter_by(mobile=mobile).first()
+
+    # Always return generic success to avoid user enumeration
+    if not user:
+        return jsonify({'ok': True, 'msg': 'If the account exists, a reset token has been sent.'}), 200
+
+    token = user.generate_reset_token()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('forgot_password: failed to store reset token')
+        return jsonify({'ok': False, 'msg': 'internal error'}), 500
+
+    # Dispatch via SMS if mobile provided and matches user; else log (email send placeholder)
+    dispatched = False
+    status = send_sms(user.mobile, f"Password reset token: {token}")
+    dispatched = status == 200
+
+
+    if not dispatched:
+        return jsonify({'ok': False, 'msg': 'failed to dispatch token'}), 500
+
+    return jsonify({'ok': True, 'msg': 'If the account exists, a reset token has been sent.'}), 200
+
+
+@auth_bp.route('/reset-password', methods=['POST'])
+def reset_password():
+    """Complete password reset using identifier (email or mobile), token, and new password."""
+    try:
+        data = request.get_json(force=True)
+    except Exception:
+        data = request.form or {}
+
+    identifier = (data.get('email') or data.get('mobile') or '').strip().lower()
+    token = (data.get('token') or '').strip()
+    new_password = (data.get('password') or '').strip()
+
+    if not identifier or not token or not new_password:
+        return jsonify({'ok': False, 'msg': 'identifier, token, password required'}), 400
+
+    user = User.query.filter((User.email == identifier) | (User.mobile == identifier)).first()
+    if not user or not user.verify_reset_token(token):
+        return jsonify({'ok': False, 'msg': 'invalid token'}), 400
+
+    user.set_password(new_password)
+    user.clear_reset_token()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('reset_password: failed to update password')
+        return jsonify({'ok': False, 'msg': 'internal error'}), 500
+    return jsonify({'ok': True, 'msg': 'password updated'}), 200

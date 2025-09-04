@@ -1,4 +1,5 @@
 from urllib.parse import unquote
+from datetime import datetime
 from flask import Blueprint, current_app, render_template, request, jsonify
 from app.config import Config
 from app.models.User import User
@@ -70,3 +71,21 @@ def change_password_page():
 @view_bp.route('/register')
 def create_user_page():
     return render_template('register.html')
+
+@view_bp.route('/forgot-password')
+def forgot_password_page():
+    return render_template('forgot_password.html')
+
+@view_bp.route('/terms')
+def terms_page():
+    return render_template('terms.html', effective_date=datetime.utcnow().date())
+
+@view_bp.route('/privacy')
+def privacy_page():
+    return render_template('privacy.html', effective_date=datetime.utcnow().date())
+
+@view_bp.route('/admin/unverified')
+@jwt_required()
+@require_roles('admin','superadmin')
+def admin_unverified_page(user_id):  # injected by decorator
+    return render_template('admin_unverified.html')

@@ -3,6 +3,8 @@
 import uuid
 import bcrypt
 import logging
+import secrets
+import hashlib
 from enum import Enum
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.associationproxy import association_proxy
@@ -43,18 +45,23 @@ class User(db.Model):
     __tablename__ = 'users'
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    username = Column(String(50), unique=True)
+    username = Column(String(50), unique=False)
     email = Column(String(120), unique=True)
     employee_id = Column(String(30), unique=True)
     mobile = Column(String(15), unique=True)
+    # user_type indicates 'employee' or 'general'
+    user_type = Column(SqlEnum(UserType), nullable=True, default=UserType.EMPLOYEE.value)
 
-    user_type = Column(SqlEnum(UserType), nullable=False)
     password_hash = Column(String(255))
     password_expiration = Column(DateTime)
 
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
     is_email_verified = Column(Boolean, default=False)
+    # Has admin verified this account (document verified)
+    is_verified = Column(Boolean, default=False)
+    # Has the user uploaded their employee ID document
+    document_submitted = Column(Boolean, default=False)
 
     failed_login_attempts = Column(Integer, default=0)
     otp_resend_count = Column(Integer, default=0)
@@ -65,6 +72,9 @@ class User(db.Model):
         timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     otp = Column(String(6))
     otp_expiration = Column(DateTime)
+    # Password reset support
+    reset_token_hash = Column(String(128))
+    reset_token_expires = Column(DateTime)
 
     videos = db.relationship(
         'Video', back_populates='user', foreign_keys='Video.user_id')
@@ -150,8 +160,36 @@ class User(db.Model):
         except Exception:
             return False
 
+    # --- Password Reset Helpers ---
+    def generate_reset_token(self, ttl_minutes: int = 30) -> str:
+        """Generate a secure token, store its hash & expiry, return the plaintext token."""
+        token = secrets.token_urlsafe(8)
+        self.reset_token_hash = hashlib.sha256(token.encode()).hexdigest()
+        self.reset_token_expires = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
+        return token
+
+    def verify_reset_token(self, token: str) -> bool:
+        if not token or not self.reset_token_hash or not self.reset_token_expires:
+            return False
+        exp = self.reset_token_expires
+        # Normalize to UTC if stored naive
+        if exp and exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if exp <= datetime.now(timezone.utc):
+            return False
+        return hashlib.sha256(token.encode()).hexdigest() == self.reset_token_hash
+
+    def clear_reset_token(self):
+        self.reset_token_hash = None
+        self.reset_token_expires = None
+
     def is_password_expired(self) -> bool:
-        return self.password_expiration and datetime.now(timezone.utc) > self.password_expiration
+        if not self.password_expiration:
+            return False
+        exp = self.password_expiration
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) > exp
 
     # --- Roles ---
 
@@ -171,6 +209,7 @@ class User(db.Model):
         user = User.query.filter(
             User.user_type == UserType.EMPLOYEE,
             User.is_active == True,
+            User.is_verified == True,
             db.or_(
                 User.username == identifier,
                 User.email == identifier,

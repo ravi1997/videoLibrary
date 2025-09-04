@@ -1,0 +1,133 @@
+{% extends "layout.html" %}
+{% block title %}Privacy Policy · RPC Surgical Video Library{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-6xl px-4 md:px-8 py-10 md:py-16">
+  <div class="grid lg:grid-cols-4 gap-10">
+    <aside class="lg:col-span-1 order-last lg:order-first self-start sticky top-24 hidden md:block">
+      <nav class="glass rounded-xl p-4 text-sm space-y-2" aria-label="Table of contents">
+        <p class="uppercase tracking-wide text-[color:var(--text-muted)] font-semibold text-xs mb-2">On this page</p>
+        <ul class="space-y-1">
+          {% for i, title in [
+            (1,'Data We Collect'),
+            (2,'How We Use Data'),
+            (3,'Legal / Compliance'),
+            (4,'Data Sharing'),
+            (5,'Security Measures'),
+            (6,'Retention'),
+            (7,'Your Choices'),
+            (8,'Cookies / Local Storage'),
+            (9,'International Access'),
+            (10,'Changes'),
+            (11,'Contact'),
+            (12,'Summary')
+          ] %}
+          <li><a class="toc-link no-underline hover:underline block py-1" href="#p{{i}}">{{i}}. {{ title }}</a></li>
+          {% endfor %}
+        </ul>
+      </nav>
+    </aside>
+
+    <div class="lg:col-span-3 space-y-12">
+      <header class="space-y-4">
+        <h1 class="text-3xl md:text-4xl font-extrabold tracking-tight text-[color:var(--text)]">Privacy Policy</h1>
+        <div class="flex flex-wrap gap-4 items-center text-sm">
+          <span class="px-3 py-1 rounded-full bg-[color:var(--brand-600)]/10 text-[color:var(--brand-700)] dark:text-[color:var(--brand-300)] font-medium">Effective: {{ effective_date or '—' }}</span>
+          <span class="px-3 py-1 rounded-full bg-[color:var(--surface-alt)] text-[color:var(--text-muted)]">Version 1.0</span>
+        </div>
+        <p class="text-[color:var(--text-muted)] max-w-prose">This Policy explains how we collect, use, and protect information within the RPC Surgical Video Library (the “Service”).</p>
+      </header>
+
+      <article class="prose max-w-none dark:prose-invert prose-sm md:prose-base">
+        <div class="space-y-10">
+          <section id="p1" class="scroll-mt-28">
+            <h2>1. Data We Collect</h2>
+            <ul>
+              <li>Account data: name, email, role, identifiers, mobile (OTP).</li>
+              <li>Operational metadata: uploads, access logs, device/browser signals.</li>
+              <li>Security & audit data: failed logins, OTP attempts, moderation actions.</li>
+              <li>Content metadata: video tags, categories, annotations.</li>
+            </ul>
+          </section>
+
+          <section id="p2" class="scroll-mt-28">
+            <h2>2. How We Use Data</h2>
+            <ul>
+              <li>Authenticate & authorize users.</li>
+              <li>Support playback, personalization, and recall (continue watching).</li>
+              <li>Security monitoring & abuse detection.</li>
+              <li>Operational analytics (aggregated, non-marketing).</li>
+            </ul>
+          </section>
+
+          <section id="p3" class="scroll-mt-28">
+            <h2>3. Legal / Compliance</h2>
+            <p>No PHI should be uploaded. Media must be de‑identified. Audit logs may be retained per institutional policies.</p>
+          </section>
+
+          <section id="p4" class="scroll-mt-28">
+            <h2>4. Data Sharing</h2>
+            <p>No sale of personal data. Limited processors (SMS, indexing, storage) under contractual safeguards.</p>
+          </section>
+
+            <section id="p5" class="scroll-mt-28">
+              <h2>5. Security Measures</h2>
+              <ul>
+                <li>Role & verification gates.</li>
+                <li>Hashed credentials & short‑lived tokens.</li>
+                <li>Rate limiting & lockouts.</li>
+                <li>Segregated secret storage.</li>
+              </ul>
+            </section>
+
+            <section id="p6" class="scroll-mt-28">
+              <h2>6. Retention</h2>
+              <p>Data retained while active plus limited archival window unless policy or law dictates deletion.</p>
+            </section>
+
+            <section id="p7" class="scroll-mt-28">
+              <h2>7. Your Choices</h2>
+              <ul>
+                <li>Request corrections.</li>
+                <li>Request deactivation (subject to compliance retention).</li>
+                <li>Adjust personalization (settings page).</li>
+              </ul>
+            </section>
+
+            <section id="p8" class="scroll-mt-28">
+              <h2>8. Cookies / Local Storage</h2>
+              <p>Used only for session continuity, theme, and playback state—no third‑party ad tracking.</p>
+            </section>
+
+            <section id="p9" class="scroll-mt-28">
+              <h2>9. International Access</h2>
+              <p>Cross-region access may occur; safeguards applied consistently though legal regimes vary.</p>
+            </section>
+
+            <section id="p10" class="scroll-mt-28">
+              <h2>10. Changes</h2>
+              <p>Material policy updates will be communicated; ongoing use implies acceptance.</p>
+            </section>
+
+            <section id="p11" class="scroll-mt-28">
+              <h2>11. Contact</h2>
+              <p>Reach administrators via designated secure channel for all privacy inquiries.</p>
+            </section>
+
+            <section id="p12" class="scroll-mt-28">
+              <h2>12. Summary</h2>
+              <p>We minimize, secure, and purpose-limit data strictly to operate and improve the Service.</p>
+            </section>
+        </div>
+      </article>
+
+      <div class="mt-12 flex flex-wrap gap-4">
+        <a href="/terms" class="btn btn-ghost">View Terms →</a>
+        <a href="/" class="btn btn-primary">Return Home</a>
+      </div>
+
+      <footer class="pt-10 text-xs text-[color:var(--text-muted)]">If you cannot accept this Policy, discontinue use of the Service.</footer>
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -17,10 +17,6 @@ class UserSchema(Schema):
     email = fields.Email(required=True)
     mobile = fields.String(required=True, validate=validate.Length(min=10))
     employee_id = fields.String(required=False, allow_none=True)
-    user_type = fields.String(
-        required=True,
-        validate=validate.OneOf([e.value for e in UserType])
-    )
     roles = fields.List(
         fields.String(validate=validate.OneOf([r.value for r in Role])),
         required=True

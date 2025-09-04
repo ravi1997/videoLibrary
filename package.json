@@ -5,6 +5,7 @@
     "tailwindcss": "^4.1.12"
   },
   "scripts": {
-    "check:register": "node scripts/check-register.js"
+  "check:register": "node scripts/check-register.js",
+  "start:py": "bash scripts/run_server.sh"
   }
 }

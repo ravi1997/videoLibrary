@@ -47,10 +47,7 @@ class Config:
 
 
     SMS_API_URL=os.getenv("SMS_API_URL","")
-    SMS_SENDER_ID=os.getenv("SMS_SENDER_ID","")
-    SMS_TEMPLATE_ID=os.getenv("SMS_TEMPLATE_ID","")
-    SMS_API_USERNAME=os.getenv("SMS_API_USERNAME","")
-    SMS_API_PASSWORD=os.getenv("SMS_API_PASSWORD","")
+    SMS_API_TOKEN = os.getenv("SMS_API_TOKEN", "")
 
 
     EHOSPITAL_INIT_URL=os.getenv("EHOSPITAL_INIT_URL","")
@@ -59,6 +56,10 @@ class Config:
     EHOSPITAL_PASSWORD=os.getenv("EHOSPITAL_PASSWORD","")
     EHOSPITAL_HOSPITAL_ID=os.getenv("EHOSPITAL_HOSPITAL_ID",0)
 
+    CDAC_AUTH_BEARER = os.getenv("CDAC_AUTH_BEARER", "")
+    CDAC_SERVER = os.getenv("CDAC_SERVER", "")
+
+    UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "/app/uploads")
 
 class DevelopmentConfig(Config):
     SQLALCHEMY_DATABASE_URI = os.getenv("DEVELOPMENT_DATABASE_URI", "sqlite:///dev.db")

@@ -1,0 +1,121 @@
+{% extends "layout.html" %}
+{% block title %}Terms of Service · RPC Surgical Video Library{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-6xl px-4 md:px-8 py-10 md:py-16">
+  <div class="grid lg:grid-cols-4 gap-10">
+    <!-- Sidebar TOC -->
+    <aside class="lg:col-span-1 order-last lg:order-first self-start sticky top-24 hidden md:block">
+      <nav class="glass rounded-xl p-4 text-sm space-y-2" aria-label="Table of contents">
+        <p class="uppercase tracking-wide text-[color:var(--text-muted)] font-semibold text-xs mb-2">On this page</p>
+        <ul class="space-y-1">
+          {% for i, title in [
+            (1,'Eligibility & Accounts'),
+            (2,'Acceptable Use'),
+            (3,'Content & Licensing'),
+            (4,'Clinical Disclaimer'),
+            (5,'Security & Privacy'),
+            (6,'Suspension & Termination'),
+            (7,'Third-Party Services'),
+            (8,'Changes to the Service'),
+            (9,'Limitation of Liability'),
+            (10,'Governing Law'),
+            (11,'Contact'),
+            (12,'Updates')
+          ] %}
+          <li><a class="toc-link no-underline hover:underline block py-1" href="#t{{i}}">{{i}}. {{ title }}</a></li>
+          {% endfor %}
+        </ul>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="lg:col-span-3 space-y-12">
+      <header class="space-y-4">
+        <h1 class="text-3xl md:text-4xl font-extrabold tracking-tight text-[color:var(--text)]">Terms of Service</h1>
+        <div class="flex flex-wrap gap-4 items-center text-sm">
+          <span class="px-3 py-1 rounded-full bg-[color:var(--brand-600)]/10 text-[color:var(--brand-700)] dark:text-[color:var(--brand-300)] font-medium">Effective: {{ effective_date or '—' }}</span>
+          <span class="px-3 py-1 rounded-full bg-[color:var(--surface-alt)] text-[color:var(--text-muted)]">Version 1.0</span>
+        </div>
+        <p class="text-[color:var(--text-muted)] max-w-prose">These Terms govern your access to and use of the RPC Surgical Video Library platform (the “Service”). By accessing or using the Service you agree to be bound by these Terms.</p>
+      </header>
+
+      <article class="prose max-w-none dark:prose-invert prose-sm md:prose-base">
+        <div class="space-y-10">
+          <section id="t1" class="scroll-mt-28">
+            <h2>1. Eligibility & Accounts</h2>
+            <p>You must be an authorized user (e.g. registered clinician, staff, trainee, or approved contributor). You are responsible for safeguarding credentials and for all activity performed with them.</p>
+          </section>
+
+          <section id="t2" class="scroll-mt-28">
+            <h2>2. Acceptable Use</h2>
+            <ul>
+              <li>Only upload or share content you have the right to distribute.</li>
+              <li>Remove / anonymize any patient identifying information before upload.</li>
+              <li>No reverse engineering, vulnerability scanning, or disruptive actions.</li>
+              <li>Do not circumvent security, approval, or role-based restrictions.</li>
+            </ul>
+          </section>
+
+            <section id="t3" class="scroll-mt-28">
+              <h2>3. Content & Licensing</h2>
+              <p>By uploading you grant a limited, internal, non-exclusive license for storage, transcoding, indexing, and playback to authorized users. Ownership remains with you.</p>
+            </section>
+
+            <section id="t4" class="scroll-mt-28">
+              <h2>4. Clinical Disclaimer</h2>
+              <p>Educational reference only—does not replace professional medical judgment. Always follow institutional guidelines.</p>
+            </section>
+
+            <section id="t5" class="scroll-mt-28">
+              <h2>5. Security & Privacy</h2>
+              <p>We apply layered technical and organizational safeguards; zero-risk cannot be guaranteed. Report issues responsibly to the admin team.</p>
+            </section>
+
+            <section id="t6" class="scroll-mt-28">
+              <h2>6. Suspension & Termination</h2>
+              <p>Access may be limited or revoked for violations, legal obligations, security risk, or prolonged inactivity. Certain records may persist for compliance or audit.</p>
+            </section>
+
+            <section id="t7" class="scroll-mt-28">
+              <h2>7. Third-Party Services</h2>
+              <p>Some capabilities (e.g. SMS, indexing, media processing) rely on third-party APIs subject to their own terms and privacy statements.</p>
+            </section>
+
+            <section id="t8" class="scroll-mt-28">
+              <h2>8. Changes to the Service</h2>
+              <p>Features may evolve; we may modify or discontinue components with or without prior notice. Material term updates will be communicated when feasible.</p>
+            </section>
+
+            <section id="t9" class="scroll-mt-28">
+              <h2>9. Limitation of Liability</h2>
+              <p>Service is provided “as is” without warranties. Liability is limited to the maximum extent permitted by law.</p>
+            </section>
+
+            <section id="t10" class="scroll-mt-28">
+              <h2>10. Governing Law</h2>
+              <p>Local jurisdictional law applies. Mandatory consumer or statutory rights are not overridden.</p>
+            </section>
+
+            <section id="t11" class="scroll-mt-28">
+              <h2>11. Contact</h2>
+              <p>Use the designated administrative or support channel for all notices, questions, or responsible disclosure.</p>
+            </section>
+
+            <section id="t12" class="scroll-mt-28">
+              <h2>12. Updates</h2>
+              <p>Continued use after revisions constitutes acceptance of updated Terms.</p>
+            </section>
+        </div>
+      </article>
+
+      <div class="mt-12 flex flex-wrap gap-4">
+        <a href="/privacy" class="btn btn-ghost">View Privacy Policy →</a>
+        <a href="/" class="btn btn-primary">Return Home</a>
+      </div>
+
+      <footer class="pt-10 text-xs text-[color:var(--text-muted)]">If you disagree with these Terms, discontinue use of the Service.</footer>
+    </div>
+  </div>
+</section>
+{% endblock %}
