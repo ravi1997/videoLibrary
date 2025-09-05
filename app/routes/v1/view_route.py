@@ -1,6 +1,6 @@
 from urllib.parse import unquote
 from datetime import datetime
-from flask import Blueprint, current_app, render_template, request, jsonify, abort
+from flask import Blueprint, current_app, render_template, request, jsonify, abort, redirect, url_for
 from app.config import Config
 from app.models.User import User
 from app.models.TokenBlocklist import TokenBlocklist
@@ -118,13 +118,8 @@ def privacy_page():
 def admin_unverified_page():  # injected by decorator
     return render_template('admin_unverified.html')
 
-@view_bp.route('/admin/link-surgeons')
-@jwt_required()
-@require_roles('admin','superadmin')
-def admin_link_surgeons_page():
-    return render_template('link_surgeons.html')
-
-@view_bp.route('/admin/admin-dashboard')
+@view_bp.route('/admin/admin-dashboard')  # legacy path retained for now
+@view_bp.route('/admin/dashboard')        # canonical path
 @jwt_required()
 @require_roles('admin','superadmin')
 def admin_dashboard_page():
@@ -137,3 +132,92 @@ def linked_videos_page_alias_surgeon(surgeon_id):
     """Alias route so frontend can link to /linked-video/<surgeon_id>."""
     return render_template('linked_videos.html', surgeon_id=surgeon_id, user_id=None)
 
+@view_bp.route('/superadmin/overview')
+@jwt_required()
+@require_roles('superadmin')
+def superadmin_overview_page():
+    """Legacy/alternate path for superadmin overview.
+
+    Preferred canonical endpoint: /admin/super/overview (super_bp.super_overview)
+
+    We TRY to redirect there to avoid duplication. However, during early app
+    initialization (or if blueprint registration order changes) the canonical
+    endpoint name might not yet exist, which previously caused a template
+    render without required context (metrics) leading to 'metrics is undefined'.
+
+    Fallback strategy:
+      1. Attempt redirect to canonical route.
+      2. If that fails (BuildError) OR explicit query param fallback=1 provided,
+         compute a minimal metric snapshot inline and render template so page
+         still loads (audit log list + full metrics are only available via the
+         canonical route).
+    """
+    from werkzeug.routing import BuildError
+    # Allow manual fallback testing: /superadmin/overview?fallback=1
+    force_fallback = request.args.get('fallback') == '1'
+    if not force_fallback:
+        try:
+            return redirect(url_for('super_bp.super_overview'))
+        except BuildError:
+            pass  # proceed to lightweight fallback
+
+    # ---- Lightweight fallback (no audit logs, minimal counts) ----
+    try:
+        users_count = User.query.count()
+    except Exception:
+        users_count = 0
+    try:
+        videos_count = Video.query.count()
+    except Exception:
+        videos_count = 0
+    # Provide the minimal structure template expects
+    minimal_metrics = {
+        'users': users_count,
+        'admins': None,
+        'superadmins': None,
+        'videos': videos_count,
+        'favourites': None,
+    }
+    # maintenance_mode default off if not available
+    maintenance_mode = 'off'
+    try:
+        from app.models import SystemSetting
+        maintenance_mode = SystemSetting.get('maintenance_mode', 'off')
+    except Exception:
+        pass
+    # Template expects audit_logs iterable
+    return render_template('super_overview.html',
+                           metrics=minimal_metrics,
+                           audit_logs=[],
+                           maintenance_mode=maintenance_mode,
+                           fallback=True)
+
+# Canonical superadmin overview page (moved from superadmin_route)
+@view_bp.route('/admin/super/overview')
+@jwt_required()
+@require_roles('superadmin')
+def super_overview_full():
+    from app.routes.v1.superadmin_route import build_super_overview_context
+    ctx = build_super_overview_context()
+    return render_template('super_overview.html', **ctx)
+
+@view_bp.route('/admin/link-surgeons')
+@jwt_required()
+@require_roles('admin','superadmin')
+def link_surgeons_page():
+    return render_template('link_surgeons.html')
+
+@view_bp.route('/admin/linked-videos')
+@jwt_required()
+@require_roles('admin','superadmin')
+def linked_videos_page():
+    surgeon_id = request.args.get('surgeon_id')
+    user_id = request.args.get('user_id')
+    return render_template('linked_videos.html', surgeon_id=surgeon_id, user_id=user_id)
+
+@view_bp.route('/admin/super/users')
+@jwt_required()
+@require_roles('superadmin')
+def superadmin_users_management_page():
+    """Superadmin user management SPA-like page (fetches data via /api/v1/super/users)."""
+    return render_template('super_users.html')

@@ -438,8 +438,8 @@ def list_videos():
         category_db = Category.query.filter(
             func.lower(Category.name) == func.lower(category)
         ).first()
-
-        q = q.filter(Video.category_id == category_db.id)
+        if category_db:
+            q = q.filter(Video.category_id == category_db.id)
 
 
     # Filters

@@ -125,6 +125,19 @@ def update_user(user_id):
     if not user:
         return jsonify({"message": "User not found"}), 404
     data = request.json or {}
+    # Guard: prevent removal of SUPERADMIN role from last superadmin via role updates (if roles list provided)
+    roles_payload = data.get('roles') if isinstance(data, dict) else None
+    if roles_payload is not None:
+        from app.security_utils import audit_log
+        # Determine if user currently has SUPERADMIN
+        has_super = any(r.role == Role.SUPERADMIN for r in user.role_associations)
+        if has_super and Role.SUPERADMIN.value not in roles_payload:
+            # Count other superadmins
+            from app.models.User import UserRole as UR
+            others = User.query.join(UR).filter(UR.role == Role.SUPERADMIN, User.id != user.id).count()
+            if others == 0:
+                audit_log('superadmin_demote_blocked', target_user_id=user_id, detail='Attempt to remove last superadmin role blocked')
+                return jsonify({"message": "Cannot remove last superadmin role"}), 403
     for k, v in (data or {}).items():
         if k == 'password_hash':
             continue
@@ -145,6 +158,11 @@ def delete_user(user_id):
     user = User.query.filter_by(id=user_id).first()
     if not user:
         return jsonify({"message": "User not found"}), 404
+    # Prevent deletion of superadmin accounts
+    if any(r.role == Role.SUPERADMIN for r in user.role_associations):
+        from app.security_utils import audit_log
+        audit_log('superadmin_delete_blocked', actor_id=None, target_user_id=user_id, detail='Attempt to delete superadmin blocked')
+        return jsonify({"message": "Cannot delete superadmin"}), 403
     try:
         db.session.delete(user)
         db.session.commit()

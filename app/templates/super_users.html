@@ -1,0 +1,143 @@
+{% extends 'layout.html' %}
+{% block title %}Superadmin User Management{% endblock %}
+{% block content %}
+<div class="mx-auto max-w-7xl space-y-6" id="super-user-mgmt">
+  <h1 class="text-2xl font-semibold">User Management</h1>
+  <div class="bg-white dark:bg-gray-800 shadow rounded border border-gray-200 dark:border-gray-700">
+    <form id="filterForm" class="p-4 flex flex-wrap gap-4 items-end text-sm">
+      <div class="flex flex-col gap-1">
+        <label class="font-medium text-xs uppercase tracking-wide">Search</label>
+        <input type="text" class="h-9 w-64 rounded border-gray-300 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-900 dark:border-gray-600" name="q" placeholder="username/email/employee id">
+      </div>
+      <div class="flex flex-col gap-1">
+        <label class="font-medium text-xs uppercase tracking-wide">Role</label>
+        <select class="h-9 w-40 rounded border-gray-300 dark:bg-gray-900 dark:border-gray-600" name="role">
+          <option value="">Any</option>
+            <option value="superadmin">Superadmin</option>
+            <option value="admin">Admin</option>
+            <option value="user">User</option>
+            <option value="uploader">Uploader</option>
+            <option value="approver">Approver</option>
+            <option value="viewer">Viewer</option>
+        </select>
+      </div>
+      <div class="flex gap-2 items-center ml-auto">
+        <button class="px-4 h-9 bg-blue-600 hover:bg-blue-700 text-white rounded shadow-sm" type="submit">Apply</button>
+        <button class="px-4 h-9 bg-gray-200 dark:bg-gray-700 dark:text-gray-200 rounded" type="button" id="resetFilters">Reset</button>
+        <button class="text-blue-600 text-xs underline" type="button" id="toggleAdvanced">Advanced</button>
+      </div>
+  <div id="advancedFilters" class="w-full flex-wrap gap-4 pt-2 border-t border-gray-200 dark:border-gray-700 hidden">
+        <div class="flex flex-col gap-1">
+          <label class="font-medium text-xs uppercase tracking-wide">Sort By</label>
+          <select class="h-9 rounded border-gray-300 dark:bg-gray-900 dark:border-gray-600" name="sort_by">
+            <option value="created_at">Created</option>
+            <option value="username">Username</option>
+            <option value="email">Email</option>
+            <option value="last_login">Last Login</option>
+            <option value="failed_login_attempts">Failed Logins</option>
+          </select>
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="font-medium text-xs uppercase tracking-wide">Direction</label>
+          <select class="h-9 rounded border-gray-300 dark:bg-gray-900 dark:border-gray-600" name="sort_dir">
+            <option value="desc">Desc</option>
+            <option value="asc">Asc</option>
+          </select>
+        </div>
+      </div>
+    </form>
+  </div>
+  <div id="bulkActions" class="hidden bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-3 flex-wrap items-center gap-2 text-sm">
+    <span class="font-semibold" id="selectedCount">0 selected</span>
+    <button class="px-3 py-1 rounded border border-blue-500 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900" data-bulk="activate">Activate</button>
+    <button class="px-3 py-1 rounded border border-yellow-500 text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-900" data-bulk="deactivate">Deactivate</button>
+    <button class="px-3 py-1 rounded border border-red-500 text-red-600 hover:bg-red-50 dark:hover:bg-red-900" data-bulk="lock">Lock</button>
+    <button class="px-3 py-1 rounded border border-green-500 text-green-600 hover:bg-green-50 dark:hover:bg-green-900" data-bulk="unlock">Unlock</button>
+    <button class="px-3 py-1 rounded border border-gray-500 text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700" data-bulk="roles">Set Roles</button>
+    <button class="px-3 py-1 rounded border border-indigo-500 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900" data-bulk="export">Export CSV</button>
+    <button class="px-2 py-1 text-blue-600 underline" id="clearSelection">Clear</button>
+  </div>
+  <div id="usersTableWrapper" class="relative bg-white dark:bg-gray-800 shadow rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
+  <div id="tableLoading" class="hidden absolute inset-0 items-center justify-center bg-white/70 dark:bg-gray-900/70 backdrop-blur-sm z-20">
+      <div class="flex flex-col items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+        <svg class="animate-spin h-6 w-6 text-blue-600" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+        <span>Loading users…</span>
+      </div>
+    </div>
+    <div class="overflow-x-auto max-h-[60vh]">
+      <table class="min-w-full text-sm" id="usersTable">
+        <thead class="bg-gray-50 dark:bg-gray-900 text-left select-none sticky top-0 z-10 shadow-sm">
+          <tr class="text-gray-600 dark:text-gray-300 text-xs font-medium tracking-wide">
+            <th class="p-2 w-8 sticky left-0 bg-gray-50 dark:bg-gray-900 z-20 border-r border-gray-200 dark:border-gray-700"><input type="checkbox" id="selectAll" class="h-4 w-4"></th>
+            <th class="p-2 sortable cursor-pointer relative" data-sort="username" data-resizable="true"><span class="inline-flex items-center">Username <span class="sort-indicator ml-1 opacity-0">▲</span></span></th>
+            <th class="p-2 sortable cursor-pointer relative" data-sort="email" data-resizable="true"><span class="inline-flex items-center">Email <span class="sort-indicator ml-1 opacity-0">▲</span></span></th>
+            <th class="p-2 relative" data-resizable="true">Roles</th>
+            <th class="p-2 relative" data-resizable="true">Active</th>
+            <th class="p-2 relative" data-resizable="true">Locked</th>
+            <th class="p-2 sortable cursor-pointer relative" data-sort="failed_login_attempts" data-resizable="true"><span class="inline-flex items-center">Failed <span class="sort-indicator ml-1 opacity-0">▲</span></span></th>
+            <th class="p-2 sortable cursor-pointer relative" data-sort="last_login" data-resizable="true"><span class="inline-flex items-center">Last Login <span class="sort-indicator ml-1 opacity-0">▲</span></span></th>
+            <th class="p-2 relative" data-resizable="true">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100 dark:divide-gray-700"></tbody>
+      </table>
+    </div>
+    <div id="emptyState" class="hidden px-6 py-10 text-center text-sm text-gray-600 dark:text-gray-300">
+      <p class="mb-3 font-medium">No users found</p>
+      <p class="text-xs">Try adjusting search or filters.</p>
+    </div>
+    <div class="flex flex-wrap gap-3 justify-between items-center px-4 py-3 bg-gray-50 dark:bg-gray-900 text-xs text-gray-600 dark:text-gray-400">
+      <div id="paginationInfo" class="font-medium"></div>
+      <div class="flex items-center gap-3">
+        <div id="paginationBtns" class="flex gap-1"></div>
+        <div class="flex items-center gap-1">
+          <input id="pageJumpInput" type="number" min="1" class="w-16 h-7 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-900 px-2" placeholder="#" />
+          <button id="pageJumpGo" class="px-3 h-7 text-xs rounded border border-blue-500 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900">Go</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Roles Modal (Tailwind) -->
+<div id="rolesModal" class="fixed inset-0 z-50 hidden" aria-hidden="true">
+  <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" data-modal-dismiss></div>
+  <div class="relative mx-auto mt-24 w-full max-w-md bg-white dark:bg-gray-800 rounded shadow-lg border border-gray-200 dark:border-gray-700">
+    <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+      <h2 class="font-semibold">Edit Roles</h2>
+      <button class="text-gray-500 hover:text-gray-800 dark:hover:text-gray-200" data-modal-dismiss>&times;</button>
+    </div>
+    <div class="p-4 space-y-2 max-h-[60vh] overflow-y-auto">
+      <form id="rolesForm" class="space-y-2">
+        <div class="flex items-center gap-2"><input type="checkbox" value="superadmin" id="roleSuperadmin" class="h-4 w-4"><label for="roleSuperadmin">Superadmin</label></div>
+        <div class="flex items-center gap-2"><input type="checkbox" value="admin" id="roleAdmin" class="h-4 w-4"><label for="roleAdmin">Admin</label></div>
+        <div class="flex items-center gap-2"><input type="checkbox" value="user" id="roleUser" class="h-4 w-4"><label for="roleUser">User</label></div>
+        <div class="flex items-center gap-2"><input type="checkbox" value="uploader" id="roleUploader" class="h-4 w-4"><label for="roleUploader">Uploader</label></div>
+        <div class="flex items-center gap-2"><input type="checkbox" value="approver" id="roleApprover" class="h-4 w-4"><label for="roleApprover">Approver</label></div>
+        <div class="flex items-center gap-2"><input type="checkbox" value="viewer" id="roleViewer" class="h-4 w-4"><label for="roleViewer">Viewer</label></div>
+      </form>
+    </div>
+    <div class="px-4 py-3 flex justify-end gap-2 border-t border-gray-200 dark:border-gray-700">
+      <button class="px-4 py-2 rounded bg-gray-200 dark:bg-gray-700 dark:text-gray-100" data-modal-dismiss>Close</button>
+      <button class="px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white" id="saveRolesBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Generic Confirmation Modal -->
+<div id="confirmModal" class="fixed inset-0 z-50 hidden" aria-hidden="true">
+  <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" data-modal-dismiss></div>
+  <div class="relative mx-auto mt-40 w-full max-w-sm bg-white dark:bg-gray-800 rounded shadow-lg border border-gray-200 dark:border-gray-700 p-5 space-y-4">
+    <h3 class="text-base font-semibold" id="confirmTitle">Please Confirm</h3>
+    <p class="text-sm text-gray-600 dark:text-gray-300" id="confirmMessage">Are you sure?</p>
+    <div class="flex justify-end gap-3 pt-2">
+      <button class="px-4 py-2 rounded bg-gray-200 dark:bg-gray-700 dark:text-gray-100" data-confirm-cancel>Cancel</button>
+      <button class="px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white" data-confirm-ok>Confirm</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/super_users.js') }}" defer></script>
+{% endblock %}

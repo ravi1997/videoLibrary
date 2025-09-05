@@ -100,3 +100,65 @@ def create_user(username, email, employee_id, mobile, password, user_type, roles
     db.session.commit()
     click.secho(
         f"✅ User '{username}' created with roles: {final_roles or '[]'}", fg='green')
+
+
+@click.command("create-superadmin")
+@click.option("--username", default=None, help="Override username (default from config or superadmin)")
+@click.option("--email", default=None, help="Override email (default from config)")
+@click.option("--employee-id", default=None, help="Override employee id")
+@click.option("--mobile", default=None, help="Override mobile")
+@click.option("--password", prompt=True, hide_input=True, confirmation_prompt=True, help="Superadmin password (required)")
+@with_appcontext
+def create_superadmin(username, email, employee_id, mobile, password):
+    """Create a superadmin (idempotent if one already exists)."""
+    existing = User.query.join(UserRole).filter(UserRole.role == Role.SUPERADMIN).first()
+    if existing:
+        click.secho("⚠ A superadmin already exists; aborting.", fg='yellow')
+        return
+    from flask import current_app
+    cfg = current_app.config
+    su = User(
+        username=username or cfg.get('SUPERADMIN_USERNAME') or 'superadmin',
+        email=email or cfg.get('SUPERADMIN_EMAIL') or 'superadmin@example.com',
+        employee_id=employee_id or cfg.get('SUPERADMIN_EMPLOYEE_ID') or 'SUPER001',
+        mobile=mobile or cfg.get('SUPERADMIN_MOBILE') or '9000000000',
+        is_active=True,
+        is_email_verified=True,
+        is_verified=True,
+        is_admin=True,
+        user_type=UserType.EMPLOYEE
+    )
+    su.set_password(password)
+    db.session.add(su)
+    db.session.flush()
+    db.session.execute(UserRole.insert().values(user_id=su.id, role=Role.SUPERADMIN))
+    db.session.execute(UserRole.insert().values(user_id=su.id, role=Role.ADMIN))
+    db.session.commit()
+    click.secho(f"✅ Superadmin '{su.username}' created (email: {su.email})", fg='green')
+
+
+@click.command("rotate-superadmin-password")
+@click.option("--current", prompt=True, hide_input=True, help="Current superadmin password")
+@click.option("--new", prompt=True, hide_input=True, confirmation_prompt=True, help="New superadmin password")
+@with_appcontext
+def rotate_superadmin_password(current, new):
+    """Rotate password for existing superadmin (first one found); requires current password."""
+    from flask import current_app
+    su = User.query.join(UserRole).filter(UserRole.role == Role.SUPERADMIN).first()
+    if not su:
+        click.secho("❌ No superadmin exists to rotate password.", fg='red')
+        return
+    # Verify current
+    if not su.check_password(current):
+        click.secho("❌ Current password invalid.", fg='red')
+        current_app.logger.warning("Superadmin rotation failed: invalid current password for user %s", su.id)
+        return
+    try:
+        su.set_password(new)
+        db.session.commit()
+        click.secho(f"✅ Superadmin password rotated for '{su.username}'", fg='green')
+        current_app.logger.info("Superadmin password rotated for user %s", su.id)
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception("Superadmin rotation error: %s", e)
+        click.secho(f"❌ Rotation failed: {e}", fg='red')

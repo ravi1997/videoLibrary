@@ -104,3 +104,22 @@ def log_structured(event: str, **fields):
         import json
         msg = json.dumps(payload, separators=(",", ":"))
     current_app.logger.info(msg)
+
+
+def audit_log(event: str, *, actor_id=None, target_user_id=None, detail=None):
+    """Persist audit log entry (best-effort)."""
+    try:
+        from app.extensions import db
+        from app.models.AuditLog import AuditLog
+        from flask import request as _req
+        entry = AuditLog(
+            event=event,
+            user_id=str(actor_id) if actor_id else None,
+            target_user_id=str(target_user_id) if target_user_id else None,
+            ip=getattr(_req, 'remote_addr', None),
+            detail=detail
+        )
+        db.session.add(entry)
+        db.session.commit()
+    except Exception as e:  # pragma: no cover
+        current_app.logger.warning(f"Audit log persist failed: {e}")

@@ -1,0 +1,214 @@
+{% extends 'layout.html' %}
+{% block title %}Superadmin Overview{% endblock %}
+{% block content %}
+<div class="container mx-auto my-8 space-y-6">
+  <h1 class="text-2xl font-bold flex items-center gap-2">🛡 <span>Superadmin Overview</span></h1>
+  <p class="muted text-sm">Restricted area: only users with the <strong>SUPERADMIN</strong> role can access this page.</p>
+
+  <div class="grid gap-4 md:grid-cols-4">
+    <div class="card"><div class="text-xs uppercase tracking-wide muted">Users</div><div class="text-xl font-semibold">{{ metrics.users }}</div></div>
+    <div class="card"><div class="text-xs uppercase tracking-wide muted">Admins</div><div class="text-xl font-semibold">{{ metrics.admins }}</div></div>
+    <div class="card"><div class="text-xs uppercase tracking-wide muted">Superadmins</div><div class="text-xl font-semibold">{{ metrics.superadmins }}</div></div>
+    <div class="card"><div class="text-xs uppercase tracking-wide muted">Videos</div><div class="text-xl font-semibold">{{ metrics.videos }}</div></div>
+  </div>
+
+  <div class="grid gap-4 md:grid-cols-3">
+    <!-- System Controls -->
+    <div class="card space-y-3">
+      <h2 class="m-0 text-sm uppercase tracking-wide">System Controls</h2>
+      <div class="flex flex-col gap-2 text-sm">
+        <div class="flex items-center gap-3">
+          <span class="font-semibold">Maintenance:</span>
+          <span id="maintState" class="badge {{ 'danger' if maintenance_mode=='on' else '' }}">{{ maintenance_mode }}</span>
+          <button id="toggleMaint" class="btn btn-ghost text-xs">Toggle</button>
+        </div>
+        <div class="flex items-center gap-2">
+          <label for="maintReason" class="text-xs uppercase tracking-wide">Reason</label>
+          <input id="maintReason" class="input text-xs flex-1" placeholder="Short reason (optional)" value="{{ maintenance_reason or '' }}" maxlength="120"/>
+        </div>
+        {% if maintenance_reason %}
+          <div class="text-xs"><span class="font-semibold">Current Reason:</span> {{ maintenance_reason }}</div>
+        {% endif %}
+      </div>
+      <div class="text-xs text-muted">When enabled, normal users may be blocked (future enforcement). Provide an optional reason.</div>
+      <hr class="divider"/>
+      <div class="space-y-1 text-xs">
+        <div><span class="font-semibold">Alembic:</span>
+          {% if metrics.migrations.current %}
+            <code>{{ metrics.migrations.current }}</code>
+            {% if metrics.migrations.drift %}
+              <span class="badge danger">Drift: head {{ metrics.migrations.head }}</span>
+            {% else %}
+              <span class="badge success">Up-to-date</span>
+            {% endif %}
+          {% else %}
+            <span class="muted">Unknown</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Security Snapshot -->
+    <div class="card space-y-3">
+      <h2 class="m-0 text-sm uppercase tracking-wide">Security</h2>
+      <ul class="list-none p-0 m-0 text-xs space-y-1">
+        <li>Failed logins (24h): <strong>{{ metrics.security.failed_login_recent_24h }}</strong></li>
+        <li>Locked accounts: <strong>{{ metrics.security.locked_accounts }}</strong></li>
+      </ul>
+      {% if metrics.security.soon_to_unlock %}
+      <div class="text-xs mt-2">Soon to unlock:</div>
+      <table class="table text-xs">
+        <thead><tr><th>User</th><th>Unlock At</th></tr></thead>
+        <tbody>
+        {% for u in metrics.security.soon_to_unlock %}
+          <tr><td>{{ u.username }}</td><td>{{ u.unlock_at }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+      <div class="text-xs mt-2">Superadmin Password Expiry:</div>
+      <ul class="list-none p-0 m-0 text-xs space-y-1">
+        {% for su in metrics.security.superadmin_passwords %}
+          <li>{{ su.username }}:
+            {% if su.expires_in_seconds %}
+              <span class="pwd-exp" data-exp-seconds="{{ su.expires_in_seconds }}">...</span>
+            {% else %}<span class="muted">n/a</span>{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+      {% if metrics.security.anomaly and metrics.security.anomaly.failed_login_spike %}
+        <div class="badge danger mt-2" title="Failed login spike vs 24h baseline">Login Spike Detected</div>
+      {% endif %}
+    </div>
+
+    <!-- Growth & Recent -->
+    <div class="card space-y-3">
+      <h2 class="m-0 text-sm uppercase tracking-wide">Growth</h2>
+      <div class="text-xs">90d Signups days: <strong>{{ metrics.growth.signups_90d|length }}</strong></div>
+      <div class="text-xs">90d Upload days: <strong>{{ metrics.growth.uploads_90d|length }}</strong></div>
+      <div class="flex gap-4 mt-2">
+        <div class="flex-1">
+          <canvas id="signupSpark" height="40" data-series='{{ metrics.growth.signups_90d | tojson }}'></canvas>
+        </div>
+        <div class="flex-1">
+          <canvas id="uploadSpark" height="40" data-series='{{ metrics.growth.uploads_90d | tojson }}'></canvas>
+        </div>
+      </div>
+      <details class="mt-2">
+        <summary class="cursor-pointer text-xs">Signup Daily Counts</summary>
+        <div class="scroll-auto" style="max-height:140px;">
+          <table class="table text-2xs">
+            <thead><tr><th>Day</th><th>Count</th></tr></thead>
+            <tbody>
+            {% for d in metrics.growth.signups_90d[-14:] %}
+              <tr><td>{{ d.day }}</td><td>{{ d.count }}</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+      <details>
+        <summary class="cursor-pointer text-xs">Upload Daily Counts</summary>
+        <div class="scroll-auto" style="max-height:140px;">
+          <table class="table text-2xs">
+            <thead><tr><th>Day</th><th>Count</th></tr></thead>
+            <tbody>
+            {% for d in metrics.growth.uploads_90d[-14:] %}
+              <tr><td>{{ d.day }}</td><td>{{ d.count }}</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+      <div class="text-xs mt-2">Top Recent (24h)</div>
+      {% if metrics.growth.top_recent_24h %}
+      <table class="table text-2xs">
+        <thead><tr><th>Video</th><th>Views</th></tr></thead>
+        <tbody>
+        {% for v in metrics.growth.top_recent_24h %}
+          <tr><td>{{ v.title }}</td><td>{{ v.views }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+        <div class="text-xs muted">No recent uploads.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card space-y-3">
+    <h2 class="m-0 text-sm uppercase tracking-wide">Recent Audit Events</h2>
+    <form id="auditFilter" class="flex flex-wrap gap-2 text-xs items-end">
+      <div>
+        <label class="block">Event</label>
+        <input name="event" class="input input-xs" placeholder="event name"/>
+      </div>
+      <div>
+        <label class="block">User ID</label>
+        <input name="user_id" class="input input-xs" placeholder="actor id"/>
+      </div>
+      <div>
+        <label class="block">Target User</label>
+        <input name="target_user_id" class="input input-xs" placeholder="target id"/>
+      </div>
+      <div>
+        <label class="block">Limit</label>
+        <input name="limit" type="number" value="50" class="input input-xs" style="width:70px"/>
+      </div>
+      <button class="btn btn-ghost text-xs" type="submit">Apply</button>
+      <button class="btn btn-ghost text-xs" type="button" id="resetAudit">Reset</button>
+    </form>
+    {% if audit_logs %}
+    <div class="overflow-auto" style="max-height:260px;">
+      <table class="table text-xs" id="auditTable">
+        <thead><tr><th>ID</th><th>Event</th><th>User</th><th>Target</th><th>Time</th></tr></thead>
+        <tbody>
+        {% for a in audit_logs %}
+          <tr><td>{{ a.id }}</td><td>{{ a.event }}</td><td>{{ a.user_id or '' }}</td><td>{{ a.target_user_id or '' }}</td><td>{{ a.created_at }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <div class="text-xs muted">No audit events yet.</div>
+    {% endif %}
+    <div class="flex gap-2">
+      <button id="exportAudit" class="btn btn-ghost text-xs">Export (JSON)</button>
+      <a id="downloadLink" class="hidden"></a>
+    </div>
+    <div class="mt-4 grid md:grid-cols-3 gap-4 text-xs">
+      <div>
+        <h3 class="m-0 text-2xs uppercase tracking-wide">User Activity</h3>
+        <div>Active: <strong>{{ metrics.user_activity.active }}</strong></div>
+        <div>Inactive: <strong>{{ metrics.user_activity.inactive }}</strong></div>
+        <div>Active %: <strong>{{ '%.1f' % metrics.user_activity.active_pct }}%</strong></div>
+      </div>
+      <div>
+        <h3 class="m-0 text-2xs uppercase tracking-wide">Top Audit Events 24h</h3>
+        {% if metrics.audit_events_24h_top %}
+        <ul class="list-none p-0 m-0 space-y-1">
+          {% for ev in metrics.audit_events_24h_top %}
+            <li>{{ ev.event }}: <strong>{{ ev.count }}</strong></li>
+          {% endfor %}
+        </ul>
+        {% else %}
+          <div class="muted">None</div>
+        {% endif %}
+      </div>
+      <div>
+        <h3 class="m-0 text-2xs uppercase tracking-wide">System</h3>
+        <div>Env: <strong>{{ metrics.system.environment or 'n/a' }}</strong></div>
+        <div>Git: <code>{{ metrics.system.git_revision or 'n/a' }}</code></div>
+        <div>JWT Access TTL: <strong>{{ metrics.system.jwt_access_ttl_min or 'n/a' }}m</strong></div>
+        <div>Refresh TTL: <strong>{{ metrics.system.refresh_ttl_min or 'n/a' }}m</strong></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 class="m-0 text-sm uppercase tracking-wide">Next Steps</h2>
+    <p class="text-sm mt-2">Add management tools here: user role enforcement, system banner, password rotation policies, rate limit overrides.</p>
+  </div>
+</div>
+<script src="/static/js/super_overview.js" defer></script>
+{% endblock %}

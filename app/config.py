@@ -48,6 +48,13 @@ class Config:
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=int(os.getenv("JWT_ACCESS_TOKEN_MINUTES", "15")))
     REFRESH_TOKEN_EXPIRES_MINUTES = int(os.getenv("REFRESH_TOKEN_EXPIRES_MINUTES", "43200"))  # 30 days default
 
+    # Superadmin bootstrap (optional). If set and no superadmin exists, one will be created at startup.
+    SUPERADMIN_USERNAME = os.environ.get('SUPERADMIN_USERNAME') or 'superadmin'
+    SUPERADMIN_EMAIL = os.environ.get('SUPERADMIN_EMAIL') or 'superadmin@example.com'
+    SUPERADMIN_EMPLOYEE_ID = os.environ.get('SUPERADMIN_EMPLOYEE_ID') or 'SUPER001'
+    SUPERADMIN_MOBILE = os.environ.get('SUPERADMIN_MOBILE') or '9000000000'
+    SUPERADMIN_PASSWORD = os.environ.get('SUPERADMIN_PASSWORD')  # Intentionally no default; if None bootstrap skips
+
 
     # Roles
     ADMIN_ROLE = "admin"
@@ -70,6 +77,8 @@ class Config:
     UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "/app/uploads")
     # Public playback toggle (if true, exposes /api/v1/video/public/* endpoints without JWT)
     ALLOW_PUBLIC_PLAYBACK = os.getenv("ALLOW_PUBLIC_PLAYBACK", "false").lower() == "true"
+    # Auto-run migrations at startup if set (safe for dev containers / CI). Accepts: true/1/yes
+    AUTO_MIGRATE_ON_STARTUP = os.getenv("AUTO_MIGRATE_ON_STARTUP", "false").lower() in ("1", "true", "yes")
 
 class DevelopmentConfig(Config):
     DEBUG = True

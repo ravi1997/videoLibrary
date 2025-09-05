@@ -66,6 +66,7 @@
 
   <!-- Scripts -->
   <script src="{{ url_for('static', filename='js/layout.js') }}"></script>
+  <!-- NOTE: For state-changing requests using cookie-based JWTs, client JS must send X-CSRF-TOKEN header (handled in page scripts). -->
   <div id="toastHost" class="fixed top-4 right-4 z-[1000] space-y-2 pointer-events-none"></div>
   {% block scripts %}{% endblock %}
 </body>

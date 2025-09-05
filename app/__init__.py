@@ -1,4 +1,5 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, g
+import secrets
 from app.security_utils import log_structured
 import logging
 from logging.handlers import RotatingFileHandler
@@ -9,7 +10,7 @@ from flask_cors import CORS
 from app.tasks import start_hls_worker
 
 
-from .commands.user_commands import create_user
+from .commands.user_commands import create_user, create_superadmin, rotate_superadmin_password
 
 from app.routes import register_blueprints
 
@@ -17,6 +18,10 @@ from .config import Config
 from .extensions import mongo, jwt, db, migrate,ma
 from .security import init_jwt_callbacks
 from .models import *
+from app.models.enumerations import Role
+from app.models.User import User, UserRole
+from datetime import datetime, timezone
+from sqlalchemy import event, inspect
 
 
 
@@ -54,6 +59,8 @@ def create_app(config_class=Config):
     jwt.init_app(app)
     init_jwt_callbacks(jwt)
     app.cli.add_command(create_user)
+    app.cli.add_command(create_superadmin)
+    app.cli.add_command(rotate_superadmin_password)
 
     # ------------------------------------------------------------------
     # Logging & Access log middleware
@@ -72,12 +79,17 @@ def create_app(config_class=Config):
         resp.headers.setdefault('Referrer-Policy', 'no-referrer')
         resp.headers.setdefault('Permissions-Policy', 'fullscreen=()')
         # CSP tightened; allow blob for workers (Video.js HLS), allow media from self, permit data: images/fonts
+        # Optional CSP nonce (added when templates call {{ csp_nonce() }})
+        nonce = getattr(g, 'csp_nonce', None)
+        script_src = "'self' blob:"
+        if nonce:
+            script_src += f" 'nonce-{nonce}'"
         csp = (
             "default-src 'self'; "
             "img-src 'self' data:; "
             "font-src 'self' data:; "
             "media-src 'self' data:; "
-            "script-src 'self' blob:; "
+            f"script-src {script_src}; "
             "worker-src 'self' blob:; "
             "style-src 'self' 'unsafe-inline'; "
             "object-src 'none'; frame-ancestors 'none'; base-uri 'self'; manifest-src 'self'"
@@ -88,6 +100,51 @@ def create_app(config_class=Config):
         if 'Link' not in resp.headers:
             resp.headers.add('Link', '</static/images/favicon.ico>; rel="icon"')
         return resp
+
+    @app.before_request
+    def _set_csp_nonce():
+        # Only generate if we might need (cheap anyway)
+        g.csp_nonce = secrets.token_urlsafe(12)
+
+    # Jinja helper
+    @app.context_processor
+    def _inject_nonce():
+        return {'csp_nonce': lambda: getattr(g, 'csp_nonce', '')}
+
+    # ------------------------------------------------------------------
+    # Dynamic DB schema readiness guard
+    # If core tables are missing, short-circuit API requests with 503 instead
+    # of producing raw ProgrammingError stack traces. Re-checks until ready.
+    # ------------------------------------------------------------------
+    CORE_TABLES = {"users", "user_roles"}
+
+    @app.before_request
+    def _schema_guard():  # pragma: no cover (runtime environment dependent)
+        # Allow static, favicon, and OPTIONS preflight unimpeded
+        if request.method == 'OPTIONS':
+            return
+        p = request.path
+        if p.startswith('/static') or p == '/favicon.ico':
+            return
+        ready = app.config.get('DB_SCHEMA_READY')
+        if ready:
+            return
+        try:
+            insp = inspect(db.engine)
+            present = set(insp.get_table_names())
+            if CORE_TABLES.issubset(present):
+                app.config['DB_SCHEMA_READY'] = True
+                return
+            # Not ready yet; only intercept API / auth / admin sensitive endpoints
+            if p.startswith('/api/') or p.startswith('/admin'):
+                return jsonify({
+                    'error': 'database_uninitialized',
+                    'detail': 'Core tables missing. Run migrations: flask db upgrade',
+                    'missing': sorted(list(CORE_TABLES - present))
+                }), 503
+        except Exception:
+            # On unexpected inspection failure, do not block (original error will surface)
+            return
 
     # ------------------------------------------------------------------
     # Error Handlers (generic safe messages)
@@ -136,7 +193,93 @@ def create_app(config_class=Config):
     CORS(app,supports_credentials=True)
     app.logger.info("Middleware loaded: Compress, CORS")
 
+    # ------------------------------------------------------------------
+    # Optional auto-migration (development / CI convenience)
+    # Controlled via AUTO_MIGRATE_ON_STARTUP env flag.
+    # Executes Alembic 'upgrade head' once per start.
+    # ------------------------------------------------------------------
+    if app.config.get('AUTO_MIGRATE_ON_STARTUP'):
+        with app.app_context():
+            try:
+                from alembic import command
+                from alembic.config import Config as AlembicConfig
+                alembic_ini = os.path.join(os.path.dirname(__file__), '..', 'migrations', 'alembic.ini')
+                # Allow both repo layouts; fallback to top-level migrations/alembic.ini
+                if not os.path.exists(alembic_ini):
+                    alembic_ini = os.path.join(app.root_path, '..', 'migrations', 'alembic.ini')
+                if os.path.exists(alembic_ini):
+                    alembic_cfg = AlembicConfig(alembic_ini)
+                    # Ensure script location resolves relative paths
+                    if not alembic_cfg.get_main_option('script_location'):
+                        alembic_cfg.set_main_option('script_location', 'migrations')
+                    app.logger.info('Auto-migration: upgrading database schema to head')
+                    command.upgrade(alembic_cfg, 'head')
+                    app.logger.info('Auto-migration complete.')
+                else:
+                    app.logger.warning('Auto-migration enabled but alembic.ini not found; skipping.')
+            except Exception as e:
+                app.logger.exception('Auto-migration failed: %s', e)
+
     start_hls_worker(app)
+
+    # ------------------------------------------------------------------
+    # Superadmin Bootstrap (runs once per start; idempotent)
+    # ------------------------------------------------------------------
+    with app.app_context():
+        try:
+            inspector = inspect(db.engine)
+            table_names = set(inspector.get_table_names())
+            required = {"users", "user_roles"}
+            if not required.issubset(table_names):
+                app.logger.info("Bootstrap skip: required tables %s missing (have: %s)", required, table_names)
+            else:
+                pwd = app.config.get('SUPERADMIN_PASSWORD')
+                if pwd:
+                    exists = User.query.join(UserRole).filter(UserRole.role == Role.SUPERADMIN).first()
+                    if not exists:
+                        su = User(
+                            username=app.config.get('SUPERADMIN_USERNAME'),
+                            email=app.config.get('SUPERADMIN_EMAIL'),
+                            employee_id=app.config.get('SUPERADMIN_EMPLOYEE_ID'),
+                            mobile=app.config.get('SUPERADMIN_MOBILE'),
+                            is_active=True,
+                            is_email_verified=True,
+                            is_verified=True,
+                            is_admin=True,
+                            user_type=None,
+                            created_at=datetime.now(timezone.utc)
+                        )
+                        su.set_password(pwd)
+                        db.session.add(su)
+                        db.session.flush()
+                        db.session.add(UserRole(user_id=su.id, role=Role.SUPERADMIN))
+                        db.session.add(UserRole(user_id=su.id, role=Role.ADMIN))
+                        db.session.commit()
+                        app.logger.warning("🚀 Superadmin user bootstrapped: %s (%s)", su.username, su.email)
+                    else:
+                        app.logger.info("Superadmin already present; bootstrap skipped")
+                else:
+                    app.logger.info("SUPERADMIN_PASSWORD not set; bootstrap disabled")
+        except Exception as e:
+            db.session.rollback()
+            app.logger.exception("Superadmin bootstrap failed: %s", e)
+
+    # ------------------------------------------------------------------
+    # Protect SUPERADMIN role from accidental total removal
+    # ------------------------------------------------------------------
+    @event.listens_for(db.session.__class__, "before_commit")
+    def _ensure_superadmin(session):  # pragma: no cover (simple guard)
+        try:
+            # Count current SUPERADMIN role rows (pending state already flushed)
+            remaining = session.query(UserRole).filter(UserRole.role == Role.SUPERADMIN).count()
+            if remaining == 0:
+                app.logger.error("❌ Attempt blocked: would remove last superadmin role")
+                raise ValueError("cannot_remove_last_superadmin")
+        except Exception as e:
+            # Re-raise to abort commit if it's our sentinel value
+            if str(e) == 'cannot_remove_last_superadmin':
+                raise
+            app.logger.exception("Error in superadmin protection hook: %s", e)
 
     try:
         register_blueprints(app)
