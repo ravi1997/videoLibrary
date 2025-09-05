@@ -14,6 +14,7 @@ from app.routes import register_blueprints
 
 from .config import Config
 from .extensions import mongo, jwt, db, migrate,ma
+from .security import init_jwt_callbacks
 from .models import *
 
 
@@ -50,6 +51,7 @@ def create_app(config_class=Config):
     migrate.init_app(app, db)
     ma.init_app(app)
     jwt.init_app(app)
+    init_jwt_callbacks(jwt)
     app.cli.add_command(create_user)
     # # Init MongoDB
     # try:

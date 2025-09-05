@@ -33,6 +33,7 @@ from app.models.enumerations import Role, VideoStatus
 from werkzeug.utils import secure_filename
 from app.tasks import enqueue_transcode, extract_thumbnail_ffmpeg
 from app.utils.decorator import require_roles  # we'll define in #2
+from flask_jwt_extended import get_jwt_identity
 
 video_schema = VideoMetaInputSchema()
 videos_schema = VideoMetaInputSchema(many=True)
@@ -526,7 +527,8 @@ def get_md5(file_path):
 @video_bp.route("/upload", methods=["POST"])
 @jwt_required()
 @require_roles(Role.UPLOADER.value, Role.ADMIN.value)
-def upload_video(user_uuid):
+def upload_video():
+    user_uuid = get_jwt_identity()
     video_uuid = str(uuid.uuid4())
 
     if "file" not in request.files:
@@ -535,6 +537,12 @@ def upload_video(user_uuid):
     try:
         file = request.files["file"]
         filename = secure_filename(file.filename)
+        if not filename:
+            return jsonify({"error": "Invalid filename"}), 400
+        allowed_ext = {".mp4", ".mov", ".mkv", ".avi"}
+        ext = os.path.splitext(filename)[1].lower()
+        if ext not in allowed_ext:
+            return jsonify({"error": "Unsupported file type"}), 400
         path = os.path.join(UPLOADS_DIR, f"{video_uuid}_{filename}")
         
         # Save file directly
@@ -578,7 +586,8 @@ def upload_video(user_uuid):
 @video_bp.route("/", methods=["POST"])
 @jwt_required()
 @require_roles(Role.UPLOADER.value, Role.ADMIN.value)
-def create_video(user_uuid):
+def create_video():
+    user_uuid = get_jwt_identity()
     if not request.is_json:
         return jsonify({"error": "Content-Type must be application/json"}), 400
 
@@ -657,7 +666,10 @@ def create_video(user_uuid):
 
 
 @video_bp.route("/<string:video_id>", methods=["PUT"])
+@jwt_required()
+@require_roles(Role.UPLOADER.value, Role.ADMIN.value)
 def update_video(video_id):
+    editor_id = get_jwt_identity()
     video = Video.query.filter_by(uuid=video_id).first_or_404()
     data = request.get_json(force=True)
 
@@ -688,7 +700,10 @@ def update_video(video_id):
 
 
 @video_bp.route("/<string:video_id>", methods=["DELETE"])
+@jwt_required()
+@require_roles(Role.UPLOADER.value, Role.ADMIN.value)
 def delete_video(video_id):
+    deleter_id = get_jwt_identity()
     video = Video.query.filter_by(uuid=video_id).first_or_404()
     db.session.delete(video)
     db.session.commit()

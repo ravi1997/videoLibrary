@@ -32,7 +32,8 @@ ADMIN_ROLE = Config.ADMIN_ROLE
 def register():
     data = request.get_json()
     current_app.logger.info("Received registration data: %s", {k: v for k, v in data.items() if k != "password"})
-    roles_in = data.get("roles", [])
+    # Only allow non-privileged roles on self-registration to prevent escalation
+    roles_in = [r for r in data.get("roles", []) if r in {Role.GENERAL.value, Role.USER.value, Role.VIEWER.value}]
     data_wo_roles = dict(data)
     data_wo_roles.pop("roles", None)
     try:
@@ -585,7 +586,7 @@ def upload_id(user_id):
 
 @auth_bp.get('/unverified')
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
-def list_unverified(user_id):  # user_id injected by require_roles
+def list_unverified():
     """Return list of users pending admin verification.
     Includes basic profile & document status. Sorted oldest first.
     """
@@ -610,7 +611,7 @@ def list_unverified(user_id):  # user_id injected by require_roles
 
 @auth_bp.post('/verify-user')
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
-def verify_user(user_id):  # user_id injected by require_roles
+def verify_user():
     """Mark a user as verified.
     Body: {"user_id": "<uuid>"}
     Returns updated user summary.
@@ -655,7 +656,7 @@ def verify_user(user_id):  # user_id injected by require_roles
 
 @auth_bp.get('/user-document/<user_id>')
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
-def get_user_document(admin_user_id, user_id=None):  # decorator injects admin id as first arg
+def get_user_document(user_id=None):
     """Stream the first document file associated with the user (if any).
     Looks for files named '<user_id>_...' in UPLOAD_FOLDER.
     Returns 404 if none found.
@@ -680,7 +681,7 @@ def get_user_document(admin_user_id, user_id=None):  # decorator injects admin i
 
 @auth_bp.post('/discard-user')
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
-def discard_user(admin_user_id):
+def discard_user():
     """Delete (discard) a non-verified user and any uploaded documents.
     Body: {"user_id": "<uuid>"}
     Prevent deletion of already verified users.

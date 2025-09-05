@@ -2,7 +2,7 @@
 
 import traceback
 from flask import Blueprint, request, jsonify, session
-from flask_jwt_extended import get_current_user, jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.schemas.user_schema import UserSchema, UserSettingsSchema
 from app.utils.decorator import require_roles
 from app.models.User import User, UserSettings, UserType, Role, MAX_OTP_RESENDS, PASSWORD_EXPIRATION_DAYS
@@ -66,8 +66,9 @@ def auth_unlock():
 @user_bp.route("/status", methods=["GET"])
 @jwt_required()
 def auth_status():
-    current_user = get_current_user()
-    return jsonify({"user": UserSchema().dump(current_user)}), 200
+    user_id = get_jwt_identity()
+    user = User.query.filter_by(id=user_id).first()
+    return jsonify({"user": UserSchema().dump(user) if user else None}), 200
 
 # ─── CRUD Endpoints ─────────────────────────────────────
 

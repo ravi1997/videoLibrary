@@ -1,6 +1,6 @@
 import logging
 from functools import wraps
-from flask import jsonify,current_app
+from flask import jsonify, current_app, g
 from flask_jwt_extended import get_jwt, verify_jwt_in_request
 
 
@@ -48,7 +48,9 @@ def require_roles(*allowed_roles: str, require_all: bool = False):
                     return jsonify({'error': 'Forbidden: insufficient permissions'}), 403
 
                 current_app.logger.debug(f"✅ Access granted to user {user_id}")
-                return func(user_id,*args, **kwargs)
+                # Store user id in flask.g instead of altering function signature
+                g.current_user_id = user_id
+                return func(*args, **kwargs)
 
             except Exception as e:
                 current_app.logger.exception(
