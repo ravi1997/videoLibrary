@@ -171,7 +171,7 @@
             </div>
         
             <!-- Form (keeps your hooks) -->
-            <form id="loginForm" class="flex flex-col gap-5" onsubmit="event.preventDefault(); login();">
+            <form id="loginForm" class="flex flex-col gap-5" data-js="login-form">
                 <!-- Username -->
                 <div class="relative">
                     <input id="username" name="username" type="text" inputmode="email" class="peer w-full pl-10 pr-3 pt-4 pb-2
@@ -260,31 +260,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/login.js') }}"></script>
-<script>
-    (function () {
-        // Show/hide password
-        const pwd = document.getElementById("password");
-        const btn = document.getElementById("togglePwd");
-        if (btn && pwd) {
-            btn.addEventListener("click", () => {
-                const show = pwd.type === "password";
-                pwd.type = show ? "text" : "password";
-                btn.textContent = show ? "Hide" : "Show";
-                btn.setAttribute("aria-label", show ? "Hide password" : "Show password");
-                btn.setAttribute("aria-pressed", String(show));
-                pwd.focus({ preventScroll: true });
-            });
-        }
-
-        // Focus ring polish
-        document.querySelectorAll(".input").forEach((el) => {
-            el.addEventListener("focus", () => el.classList.add("ring-1", "ring-[color:var(--brand-600)]"));
-            el.addEventListener("blur", () => el.classList.remove("ring-1", "ring-[color:var(--brand-600)]"));
-        });
-
-        // Optional: expose remember-me to login.js
-        window.__getRememberMe = () => !!document.getElementById("rememberMe")?.checked;
-    })();
-</script>
+<script src="{{ url_for('static', filename='js/login.js') }}" defer></script>
 {% endblock %}

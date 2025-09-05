@@ -290,13 +290,28 @@
             const payload = buildProgressPayload(forceCompleted);
             if (!forceCompleted && !shouldSend(payload)) return;
             lastProgressSentAt = Date.now();
-
+            const token = getToken();
+            // If we have a token, prefer fetch with Authorization so we don't get 401 from missing headers.
+            if (token) {
+                await fetchWithTimeout(CFG.PROGRESS, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                        "Authorization": "Bearer " + token
+                    },
+                    body: JSON.stringify(payload),
+                    keepalive: true,
+                }, CFG.TIMEOUT_MS);
+                return;
+            }
+            // Anonymous user path: attempt sendBeacon (no headers possible), fallback to fetch without auth.
             const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
             const ok = navigator.sendBeacon?.(CFG.PROGRESS, blob);
             if (!ok) {
                 await fetchWithTimeout(CFG.PROGRESS, {
                     method: "POST",
-                    headers: { "Content-Type": "application/json", ...(getToken() ? { "Authorization": "Bearer " + getToken() } : {}) },
+                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(payload),
                     keepalive: true,
                 }, CFG.TIMEOUT_MS);

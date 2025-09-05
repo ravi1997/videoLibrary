@@ -2,6 +2,8 @@
 # One-file bundle: Marshmallow schemas + API routes for a YouTube-like experience
 
 import hashlib
+import json
+import hashlib as _hashlib
 from math import ceil
 import mimetypes
 import subprocess
@@ -33,6 +35,7 @@ from app.models.enumerations import Role, VideoStatus
 from werkzeug.utils import secure_filename
 from app.tasks import enqueue_transcode, extract_thumbnail_ffmpeg
 from app.utils.decorator import require_roles  # we'll define in #2
+from app.security_utils import rate_limit, ip_and_path_key
 from flask_jwt_extended import get_jwt_identity
 
 video_schema = VideoMetaInputSchema()
@@ -102,70 +105,81 @@ def _related_by_category(video: Video, limit: int = 6) -> List[Video]:
 # 1) HLS Playback — Master Manifest + (optional) segment passthrough
 # ------------------------------------------------------------------------------
 
-@video_bp.route("/hls/<string:video_id>/master.m3u8", methods=["GET"])
-def hls_master(video_id):
-    """
-    Serve the .m3u8 stored in Video.file_path.
-    file_path should point to .../master.m3u8. We serve the file from its folder.
-    """
-    video = Video.query.filter_by(uuid=video_id).first_or_404()
+def _build_master_response(video: Video):
     if not video.file_path or not os.path.exists(video.file_path):
         abort(404, description="HLS master not found")
-
 
     video.views = (video.views or 0) + 1
     db.session.commit()
 
     directory = os.path.dirname(video.file_path)
     filename = os.path.basename(video.file_path)
-    
     path = os.path.join(directory, filename)
-    print(f"Serving HLS master from {directory}/{filename}")
-    
     if not os.path.exists(path):
         abort(404, description="HLS master not found")
-
-    # Read entire file (usually small) to modify headers
     with open(path, "rb") as f:
         data = f.read()
     resp = Response(data, status=200, mimetype="application/vnd.apple.mpegurl")
-
-    # 🔑 remove range semantics
     resp.headers["Accept-Ranges"] = "none"
     resp.headers.pop("Content-Range", None)
-
-    # no caching for playlists
     resp.headers["Cache-Control"] = "no-store"
-
-    # allow cross-origin playback
     resp.headers["Access-Control-Allow-Origin"] = "*"
     resp.headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
     resp.headers["Access-Control-Allow-Headers"] = "Range, Origin, X-Requested-With, Content-Type, Accept, Authorization"
     resp.headers["Access-Control-Expose-Headers"] = "Content-Length, Content-Range, Accept-Ranges"
-
     return resp
+
+@video_bp.route("/hls/<string:video_id>/master.m3u8", methods=["GET"])
+@jwt_required()
+def hls_master(video_id):
+    """
+    Serve the .m3u8 stored in Video.file_path.
+    file_path should point to .../master.m3u8. We serve the file from its folder.
+    """
+    video = Video.query.filter_by(uuid=video_id).first_or_404()
+    return _build_master_response(video)
 
     
 
 
+def _serve_hls_asset(video: Video, asset: str):
+    base_dir = os.path.dirname(video.file_path)
+    full_path = os.path.join(base_dir, asset)
+    if not os.path.commonpath([os.path.realpath(full_path), os.path.realpath(base_dir)]) == os.path.realpath(base_dir):
+        abort(403)
+    if not os.path.exists(full_path):
+        abort(404)
+    return send_from_directory(base_dir, asset)
+
 @video_bp.route("/hls/<string:video_id>/<path:asset>", methods=["GET"])
+@jwt_required()
 def hls_assets(video_id, asset):
     """
     Optional helper to serve HLS segments/keys under the same folder as master.m3u8
     Example: /hls/<id>/segments/segment_000.ts or /hls/<id>/keys/key.key
     """
     video = Video.query.filter_by(uuid=video_id).first_or_404()
-    base_dir = os.path.dirname(video.file_path)
-    full_path = os.path.join(base_dir, asset)
+    return _serve_hls_asset(video, asset)
 
-    if not os.path.commonpath([os.path.realpath(full_path), os.path.realpath(base_dir)]) == os.path.realpath(base_dir):
-        abort(403)  # path traversal guard
-
-    if not os.path.exists(full_path):
+# ---------------- Public Playback (Optional) -----------------
+@video_bp.route("/public/hls/<string:video_id>/master.m3u8", methods=["GET"])
+def public_hls_master(video_id):
+    if not current_app.config.get("ALLOW_PUBLIC_PLAYBACK"):
         abort(404)
+    video = Video.query.filter_by(uuid=video_id).first_or_404()
+    # Only allow published videos publicly
+    if video.status not in [VideoStatus.PUBLISHED, VideoStatus.PROCESSED]:
+        abort(403)
+    return _build_master_response(video)
 
-    # Let Flask infer type
-    return send_from_directory(base_dir, asset)
+@video_bp.route("/public/hls/<string:video_id>/<path:asset>", methods=["GET"])
+def public_hls_assets(video_id, asset):
+    if not current_app.config.get("ALLOW_PUBLIC_PLAYBACK"):
+        abort(404)
+    video = Video.query.filter_by(uuid=video_id).first_or_404()
+    if video.status not in [VideoStatus.PUBLISHED, VideoStatus.PROCESSED]:
+        abort(403)
+    return _serve_hls_asset(video, asset)
 
 
 
@@ -380,6 +394,7 @@ def clear_history():
 # ------------------------------------------------------------------------------
 
 @video_bp.route("/<string:video_id>", methods=["GET"])
+@jwt_required()
 def get_video(video_id):
     video = Video.query.filter_by(uuid=video_id).first_or_404()
     return video_schema.dump(video), 200
@@ -390,6 +405,7 @@ def get_video(video_id):
 # ------------------------------------------------------------------------------
 
 @video_bp.route("/<string:video_id>/recommendations", methods=["GET"])
+@jwt_required()
 def recommendations(video_id):
     video = Video.query.filter_by(uuid=video_id).first_or_404()
     recs = _recommend_by_tags(video, limit=12)
@@ -400,6 +416,7 @@ def recommendations(video_id):
 
 
 @video_bp.route("/<string:video_id>/watch-next", methods=["GET"])
+@jwt_required()
 def watch_next(video_id):
     video = Video.query.filter_by(uuid=video_id).first_or_404()
     related = _related_by_category(
@@ -412,6 +429,7 @@ def watch_next(video_id):
 # ------------------------------------------------------------------------------
 
 @video_bp.route("/", methods=["GET"])
+@jwt_required()
 def list_videos():
     q = Video.query
 
@@ -527,6 +545,7 @@ def get_md5(file_path):
 @video_bp.route("/upload", methods=["POST"])
 @jwt_required()
 @require_roles(Role.UPLOADER.value, Role.ADMIN.value)
+@rate_limit(ip_and_path_key, limit=10, window_sec=3600)
 def upload_video():
     user_uuid = get_jwt_identity()
     video_uuid = str(uuid.uuid4())
@@ -544,6 +563,21 @@ def upload_video():
         if ext not in allowed_ext:
             return jsonify({"error": "Unsupported file type"}), 400
         path = os.path.join(UPLOADS_DIR, f"{video_uuid}_{filename}")
+        file.seek(0, os.SEEK_END)
+        size = file.tell()
+        file.seek(0)
+        max_size_mb = 500
+        if size > max_size_mb * 1024 * 1024:
+            return jsonify({"error": "File too large"}), 400
+        # MIME sniff (best-effort) to mitigate disguised uploads
+        try:
+            import magic  # type: ignore
+            mime = magic.from_buffer(file.read(2048), mime=True)
+            file.seek(0)
+            if not mime.startswith('video/'):
+                return jsonify({"error": "Invalid MIME type"}), 400
+        except Exception:
+            file.seek(0)
         
         # Save file directly
         file.save(path)
@@ -583,9 +617,356 @@ def upload_video():
         return jsonify({"error": f"Error saving video: {str(e)}"}), 500
 
 
+# ------------------------------------------------------------------------------
+# Chunked / Resumable Upload API (experimental)
+# Endpoints:
+#   POST /upload/init     -> { filename, size, chunk_size? } => { upload_id, chunk_size, total_chunks }
+#   POST /upload/chunk    -> multipart/form-data: upload_id, index, chunk, (optional) chunk_sha256
+#   POST /upload/complete -> { upload_id, filename, total_chunks } => creates video (same as direct upload)
+# Notes:
+#   - Chooses same validation rules as direct upload (extension, size limit, mime sniff)
+#   - Stores temporary parts under UPLOADS_DIR/chunks/<upload_id>/<index>.part
+#   - Assembles final file then reuses logic similar to direct upload to persist Video
+#   - Does NOT (yet) support partial cleanup scheduling; caller should finish upload promptly
+# ------------------------------------------------------------------------------
+
+CHUNK_DIR = os.path.join(UPLOADS_DIR, "chunks")
+os.makedirs(CHUNK_DIR, exist_ok=True)
+_last_cleanup_ts = None
+
+def _cleanup_stale_sessions(max_age_hours: int = 24):
+    """Remove chunk session directories older than max_age_hours.
+    Called opportunistically (not guaranteed) to prevent accumulation.
+    """
+    global _last_cleanup_ts
+    now = datetime.utcnow()
+    # run at most once per hour
+    if _last_cleanup_ts and (now - _last_cleanup_ts).total_seconds() < 3600:
+        return
+    _last_cleanup_ts = now
+    try:
+        for d in os.listdir(CHUNK_DIR):
+            path = os.path.join(CHUNK_DIR, d)
+            if not os.path.isdir(path):
+                continue
+            meta_path = os.path.join(path, 'meta.json')
+            created = None
+            if os.path.exists(meta_path):
+                try:
+                    with open(meta_path, 'r') as f:
+                        meta = json.load(f)
+                    created_iso = meta.get('created_at')
+                    if created_iso:
+                        created = datetime.fromisoformat(created_iso.replace('Z',''))
+                except Exception:
+                    pass
+            if not created:
+                # fallback: directory mtime
+                stat = os.stat(path)
+                created = datetime.utcfromtimestamp(stat.st_mtime)
+            if (now - created).total_seconds() > max_age_hours * 3600:
+                # only remove if no active write (heuristic: no .lock file)
+                lock_path = os.path.join(path, '.lock')
+                if os.path.exists(lock_path):
+                    continue
+                try:
+                    for fname in os.listdir(path):
+                        try: os.remove(os.path.join(path, fname))
+                        except Exception: pass
+                    os.rmdir(path)
+                except Exception:
+                    pass
+    except Exception:
+        current_app.logger.debug("Chunk cleanup encountered an error", exc_info=True)
+
+def _validate_extension(filename: str):
+    allowed_ext = {".mp4", ".mov", ".mkv", ".avi"}
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in allowed_ext:
+        abort(400, description="Unsupported file type")
+    return ext
+
+def _assemble_chunks(upload_id: str, total_chunks: int, final_path: str):
+    part_dir = os.path.join(CHUNK_DIR, upload_id)
+    if not os.path.isdir(part_dir):
+        abort(400, description="Invalid upload_id")
+    with open(final_path, 'wb') as out:
+        for i in range(total_chunks):
+            part_path = os.path.join(part_dir, f"{i}.part")
+            if not os.path.exists(part_path):
+                abort(400, description=f"Missing chunk {i}")
+            with open(part_path, 'rb') as pf:
+                while True:
+                    buf = pf.read(1024 * 1024)
+                    if not buf:
+                        break
+                    out.write(buf)
+    # cleanup
+    try:
+        for fname in os.listdir(part_dir):
+            os.remove(os.path.join(part_dir, fname))
+        os.rmdir(part_dir)
+    except Exception:
+        pass
+
+def _process_final_video(path: str, filename: str, user_uuid: str):
+    # Largely mirrors logic in upload_video() after file saved
+    max_size_mb = 500
+    size = os.path.getsize(path)
+    if size > max_size_mb * 1024 * 1024:
+        os.remove(path)
+        abort(400, description="File too large")
+    # MIME sniff
+    try:
+        import magic  # type: ignore
+        with open(path, 'rb') as f:
+            mime = magic.from_buffer(f.read(2048), mime=True)
+        if not mime.startswith('video/'):
+            os.remove(path)
+            abort(400, description="Invalid MIME type")
+    except Exception:
+        pass
+
+    duration = get_video_duration(path)
+    md5 = get_md5(path)
+    existing = Video.query.filter_by(md5=md5).first()
+    if existing:
+        # Duplicate: discard new file, return existing UUID
+        try: os.remove(path)
+        except Exception: pass
+        return existing
+
+    video_uuid = str(uuid.uuid4())
+    new_name = f"{video_uuid}_{filename}"
+    final_path = os.path.join(UPLOADS_DIR, new_name)
+    os.rename(path, final_path)
+
+    video = Video(
+        uuid=video_uuid,
+        title=os.path.splitext(filename)[0],
+        description="",
+        transcript=None,
+        original_file_path=final_path,
+        file_path=final_path,
+        status=VideoStatus.PENDING,
+        user_id=user_uuid,
+        duration=duration,
+        md5=md5
+    )
+    db.session.add(video)
+    db.session.commit()
+    enqueue_transcode(video.uuid)
+    try:
+        extract_thumbnail_ffmpeg(final_path, video_uuid, output_dir=THUMBNAILS_DIR)
+    except Exception:
+        current_app.logger.warning("Thumbnail extraction failed for chunked upload", exc_info=True)
+    return video
+
+def _sha256_file(path: str) -> str:
+    h = _hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b''):
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+@video_bp.route('/upload/init', methods=['POST'])
+@jwt_required()
+@require_roles(Role.UPLOADER.value, Role.ADMIN.value)
+def init_chunk_upload():
+    _cleanup_stale_sessions()
+    data = request.get_json(silent=True) or {}
+    filename = secure_filename(data.get('filename') or '')
+    if not filename:
+        return jsonify({"error": "Missing filename"}), 400
+    size = int(data.get('size') or 0)
+    if size <= 0:
+        return jsonify({"error": "Invalid size"}), 400
+    _validate_extension(filename)
+    chunk_size = int(data.get('chunk_size') or (8 * 1024 * 1024))  # default 8MB
+    if chunk_size < 1024 * 256:
+        chunk_size = 1024 * 256
+    total_chunks = (size + chunk_size - 1) // chunk_size
+    upload_id = str(uuid.uuid4())
+    part_dir = os.path.join(CHUNK_DIR, upload_id)
+    os.makedirs(part_dir, exist_ok=True)
+    # persist simple session metadata for resume/status (with user ownership)
+    user_uuid = get_jwt_identity()
+    meta = {
+        "filename": filename,
+        "size": size,
+        "chunk_size": chunk_size,
+        "total_chunks": total_chunks,
+        "user_id": user_uuid,
+        "created_at": datetime.utcnow().isoformat() + "Z",
+        "hash_algorithm": "sha256",
+        "file_sha256": (data.get('file_sha256') or '').lower() if data.get('file_sha256') else None
+    }
+    try:
+        with open(os.path.join(part_dir, 'meta.json'), 'w') as f:
+            json.dump(meta, f)
+    except Exception as e:
+        current_app.logger.warning(f"Failed writing chunk meta for {upload_id}: {e}")
+    return jsonify({
+        "upload_id": upload_id,
+        "chunk_size": chunk_size,
+        "total_chunks": total_chunks
+    }), 201
+
+@video_bp.route('/upload/chunk', methods=['POST'])
+@jwt_required()
+@require_roles(Role.UPLOADER.value, Role.ADMIN.value)
+def upload_chunk():
+    upload_id = request.form.get('upload_id') or ''
+    index = request.form.get('index') or ''
+    if not upload_id or not index.isdigit():
+        return jsonify({"error": "Missing upload_id or index"}), 400
+    file = request.files.get('chunk')
+    if not file:
+        return jsonify({"error": "Missing chunk"}), 400
+    part_dir = os.path.join(CHUNK_DIR, upload_id)
+    if not os.path.isdir(part_dir):
+        return jsonify({"error": "Invalid upload_id"}), 400
+    # ownership check (if meta exists)
+    meta_path = os.path.join(part_dir, 'meta.json')
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, 'r') as f:
+                meta = json.load(f)
+            if meta.get('user_id') != get_jwt_identity():
+                return jsonify({"error": "Forbidden"}), 403
+        except Exception:
+            pass
+    idx = int(index)
+    part_path = os.path.join(part_dir, f"{idx}.part")
+    file.save(part_path)
+    # integrity check if client supplied hash
+    supplied_hash = request.form.get('chunk_sha256')
+    if supplied_hash:
+        try:
+            h = _hashlib.sha256()
+            with open(part_path, 'rb') as pf:
+                for chunk in iter(lambda: pf.read(1024 * 1024), b''):
+                    h.update(chunk)
+            calc = h.hexdigest()
+            if calc.lower() != supplied_hash.lower():
+                try: os.remove(part_path)
+                except Exception: pass
+                return jsonify({"error": "Checksum mismatch", "expected": calc, "received": supplied_hash}), 400
+        except Exception as e:
+            current_app.logger.warning(f"Chunk hash verification failed ({upload_id}:{idx}): {e}")
+            return jsonify({"error": "Hash verification error"}), 500
+    return jsonify({"received": idx, "verified": bool(supplied_hash)}), 200
+
+@video_bp.route('/upload/complete', methods=['POST'])
+@jwt_required()
+@require_roles(Role.UPLOADER.value, Role.ADMIN.value)
+def complete_chunk_upload():
+    user_uuid = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+    upload_id = data.get('upload_id') or ''
+    filename = secure_filename(data.get('filename') or '')
+    total_chunks = int(data.get('total_chunks') or 0)
+    if not upload_id or not filename or total_chunks <= 0:
+        return jsonify({"error": "Missing parameters"}), 400
+    _validate_extension(filename)
+    part_dir = os.path.join(CHUNK_DIR, upload_id)
+    if not os.path.isdir(part_dir):
+        return jsonify({"error": "Invalid upload_id"}), 400
+    # verify user ownership if meta exists
+    meta_path = os.path.join(part_dir, 'meta.json')
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, 'r') as f:
+                meta = json.load(f)
+            if meta.get('user_id') != user_uuid:
+                return jsonify({"error": "Forbidden"}), 403
+            # trust original filename & total_chunks from meta, override if mismatch
+            if meta.get('total_chunks') == total_chunks:
+                filename = meta.get('filename') or filename
+        except Exception:
+            pass
+    temp_path = os.path.join(part_dir, f"assembled_{uuid.uuid4()}_{filename}")
+    try:
+        _assemble_chunks(upload_id, total_chunks, temp_path)
+        expected_sha = None
+        meta_path = os.path.join(part_dir, 'meta.json')
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path, 'r') as f:
+                    meta = json.load(f)
+                expected_sha = (meta.get('file_sha256') or '').lower() or None
+            except Exception:
+                pass
+        if expected_sha:
+            actual_sha = _sha256_file(temp_path)
+            if actual_sha.lower() != expected_sha:
+                try: os.remove(temp_path)
+                except Exception: pass
+                abort(400, description="Final file hash mismatch")
+        video = _process_final_video(temp_path, filename, user_uuid)
+        return jsonify({"uuid": video.uuid, "status": video.status.value}), 201
+    except Exception as e:
+        current_app.logger.error(f"Chunked upload completion failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@video_bp.route('/upload/status', methods=['GET'])
+@jwt_required()
+@require_roles(Role.UPLOADER.value, Role.ADMIN.value)
+def upload_status():
+    """Return server-side knowledge of already received chunks for resume logic.
+    Query params: upload_id
+    Response: { upload_id, received: [indexes], next_index, total_chunks, chunk_size, filename, size }
+    404 if session not found. 403 if owned by another user.
+    """
+    upload_id = request.args.get('upload_id') or ''
+    if not upload_id:
+        return jsonify({"error": "upload_id required"}), 400
+    part_dir = os.path.join(CHUNK_DIR, upload_id)
+    if not os.path.isdir(part_dir):
+        return jsonify({"error": "Not found"}), 404
+    user_uuid = get_jwt_identity()
+    meta = {}
+    meta_path = os.path.join(part_dir, 'meta.json')
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, 'r') as f:
+                meta = json.load(f)
+        except Exception:
+            meta = {}
+    if meta.get('user_id') and meta.get('user_id') != user_uuid:
+        return jsonify({"error": "Forbidden"}), 403
+    received = []
+    for fname in os.listdir(part_dir):
+        if fname.endswith('.part'):
+            try:
+                received.append(int(fname.split('.')[0]))
+            except Exception:
+                pass
+    received.sort()
+    total_chunks = meta.get('total_chunks') or None
+    chunk_size = meta.get('chunk_size') or None
+    size = meta.get('size') or None
+    filename = meta.get('filename') or None
+    next_index = (max(received) + 1) if received else 0
+    if total_chunks is not None and next_index >= total_chunks:
+        next_index = total_chunks  # ready to finalize
+    return jsonify({
+        "upload_id": upload_id,
+        "received": received,
+        "next_index": next_index,
+        "total_chunks": total_chunks,
+        "chunk_size": chunk_size,
+        "filename": filename,
+        "size": size
+    }), 200
+
+
 @video_bp.route("/", methods=["POST"])
 @jwt_required()
 @require_roles(Role.UPLOADER.value, Role.ADMIN.value)
+@rate_limit(ip_and_path_key, limit=30, window_sec=3600)
 def create_video():
     user_uuid = get_jwt_identity()
     if not request.is_json:
@@ -671,6 +1052,13 @@ def create_video():
 def update_video(video_id):
     editor_id = get_jwt_identity()
     video = Video.query.filter_by(uuid=video_id).first_or_404()
+    # Ownership check: allow admin or owner
+    # roles are in JWT claims; fetch from request context
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    roles_claim = claims.get('roles', [])
+    if video.user_id != editor_id and not any(r in roles_claim for r in [Role.ADMIN.value, Role.SUPERADMIN.value]):
+        return jsonify({"error": "Not owner"}), 403
     data = request.get_json(force=True)
 
     for field in ["title", "description", "transcript", "file_path"]:
@@ -705,6 +1093,11 @@ def update_video(video_id):
 def delete_video(video_id):
     deleter_id = get_jwt_identity()
     video = Video.query.filter_by(uuid=video_id).first_or_404()
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    roles_claim = claims.get('roles', [])
+    if video.user_id != deleter_id and not any(r in roles_claim for r in [Role.ADMIN.value, Role.SUPERADMIN.value]):
+        return jsonify({"error": "Not owner"}), 403
     db.session.delete(video)
     db.session.commit()
     return jsonify({"ok": True}), 200
@@ -715,6 +1108,7 @@ def delete_video(video_id):
 # ------------------------------------------------------------------------------
 
 @video_bp.route("/channels/<int:user_id>", methods=["GET"])
+@jwt_required()
 def channel_info(user_id):
     user = User.query.get_or_404(user_id)
 
@@ -733,6 +1127,7 @@ def channel_info(user_id):
 # ------------------------------------------------------------------------------
 
 @video_bp.route("/surgeons/<int:surgeon_id>", methods=["GET"])
+@jwt_required()
 def surgeon_detail(surgeon_id):
     s = Surgeon.query.get_or_404(surgeon_id)
     payload = {
@@ -743,6 +1138,7 @@ def surgeon_detail(surgeon_id):
 
 
 @video_bp.route("/surgeons/paginated", methods=["GET"])
+@jwt_required()
 def surgeons_paginated_list():
     q = Surgeon.query.order_by(Surgeon.name.asc())
     return paginate_query(q, surgeon_schema, default_per_page=20)
@@ -753,12 +1149,14 @@ def surgeons_paginated_list():
 # ------------------------------------------------------------------------------
 
 @video_bp.route("/tags", methods=["GET"])
+@jwt_required()
 def tags_list():
     tags = Tag.query.order_by(Tag.name.asc()).all()
     return tag_schema.dump(tags), 200
 
 
 @video_bp.route("/tags/top", methods=["GET"])
+@jwt_required()
 def tags_top_list():
     limit = request.args.get("limit", 5, type=int)
 
@@ -778,18 +1176,21 @@ def tags_top_list():
 
 
 @video_bp.route("/categories", methods=["GET"])
+@jwt_required()
 def categories_list():
     cats = Category.query.order_by(Category.name.asc()).all()
     return category_schema.dump(cats), 200
 
 
 @video_bp.route("/trending", methods=["GET"])
+@jwt_required()
 def trending_videos():
     q = Video.query.order_by(Video.views.desc())
     return paginate_query(q, videos_mini_schema,default_per_page=10)
 
 
 @video_bp.route("/surgeons", methods=["GET"])
+@jwt_required()
 def surgeons_list():
     surgeons = Surgeon.query.order_by(Surgeon.name.asc()).all()
     return surgeon_schema.dump(surgeons), 200
@@ -831,9 +1232,16 @@ def favourite_status(video_id):
 @jwt_required()
 def add_favourite(video_id):
     user_id = get_jwt_identity()
-    favourite = Favourite(user_id=user_id, video_id=video_id)
-    db.session.add(favourite)
-    db.session.commit()
+    existing = Favourite.query.filter_by(user_id=user_id, video_id=video_id).first()
+    if existing:
+        return jsonify({"ok": True, "already": True}), 200
+    fav = Favourite(user_id=user_id, video_id=video_id)
+    try:
+        db.session.add(fav)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.warning(f"Duplicate favourite suppressed for user {user_id} video {video_id}: {e}")
     return jsonify({"ok": True}), 200
 
 @video_bp.route("/<string:video_id>/favorite", methods=["DELETE"])
@@ -946,6 +1354,7 @@ def search_videos():
 # ------------------------------------------------------------------------------
 
 @video_bp.route("/thumbnails/<string:video_id>.jpg", methods=["GET"])
+@jwt_required()
 def serve_thumbnail(video_id):
     # Change this directory to where your thumbnails live
     thumb_dir = THUMBNAILS_DIR
@@ -960,6 +1369,7 @@ def serve_thumbnail(video_id):
 # ------------------------------------------------------------------------------
 
 @video_bp.route("/<string:video_id>/view", methods=["POST"])
+@jwt_required()
 def add_view(video_id):
     # If you add a 'views' column on Video, update it here.
     # Example:
@@ -970,6 +1380,7 @@ def add_view(video_id):
 
 
 @video_bp.route("/<string:video_id>/like", methods=["POST"])
+@jwt_required()
 def add_like(video_id):
     # If you add a 'likes' table or column, update it here.
     return jsonify({"status": "ok"}), 201
@@ -980,6 +1391,7 @@ def add_like(video_id):
 # ------------------------------------------------------------------------------
 
 @video_bp.route("/analytics", methods=["POST"])
+@jwt_required()
 def analytics():
     payload = request.get_json(force=True, silent=True) or {}
     # Store in your analytics store / DB here

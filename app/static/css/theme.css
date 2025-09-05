@@ -262,7 +262,6 @@ a:hover {
 }
 
 .btn-primary {
-    composes: btn;
     background: var(--brand-600);
     color: #fff;
     border-color: color-mix(in oklab, var(--brand-600) 85%, #000);
@@ -273,7 +272,6 @@ a:hover {
 }
 
 .btn-ghost {
-    composes: btn;
     background: transparent;
     color: var(--text);
     border-color: var(--border);
@@ -321,6 +319,14 @@ a:hover {
 
 /* Active / selected chip state */
 .chip.active {
+    background: var(--brand-600);
+    color: #fff;
+    border-color: var(--brand-600);
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--brand-600) 85%, transparent);
+}
+
+/* Support accessibility state: treat aria-pressed="true" same as .active */
+.chip[aria-pressed="true"] {
     background: var(--brand-600);
     color: #fff;
     border-color: var(--brand-600);

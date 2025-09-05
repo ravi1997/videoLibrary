@@ -26,7 +26,7 @@
             <!-- Duration -->
             <section>
                 <h3 class="label">Duration</h3>
-                <div class="hidden grid grid-cols-2 gap-2">
+                <div class="hidden grid-cols-2 gap-2">
                     <label class="text-xs muted">Min (min)
                         <input id="durationMin" type="number" min="0" step="1" value="0" class="input w-full mt-1" />
                     </label>
@@ -53,7 +53,7 @@
                     <button class="chip" data-date="365d">1 year</button>
                     <button class="chip" data-date="366d">more than 1 year</button>
                 </div>
-                <div class="hidden grid grid-cols-2 gap-2 mt-2">
+                <div class="hidden grid-cols-2 gap-2 mt-2">
                     <label class="text-xs muted">From
                         <input id="dateFrom" type="date" class="input w-full mt-1" />
                     </label>
@@ -71,7 +71,7 @@
                 <datalist id="searchTagList"></datalist>
             </section>
 
-            <div class="hidden pt-2 flex gap-2">
+            <div class="hidden pt-2 gap-2">
                 <button id="applyFilters" class="btn-primary flex-1">Apply</button>
                 <button id="resetFilters"
                     class="btn-ghost px-3 py-2 border border-[color:var(--border)] rounded">Reset</button>
@@ -112,8 +112,7 @@
 
                 <!-- View toggle -->
                 <div>
-                    <button id="viewToggle" class="btn-ghost px-3 py-2 rounded-lg border border-[color:var(--border)]"
-                        onclick="window.searchPage?.toggleView?.()">
+                    <button id="viewToggle" class="btn-ghost px-3 py-2 rounded-lg border border-[color:var(--border)]">
                         Toggle Grid/List
                     </button>
                 </div>
@@ -134,10 +133,10 @@
 
             <!-- Pagination -->
             <div class="mt-8 flex items-center justify-center gap-4">
-                <button id="prevBtn" onclick="window.searchPage?.changePage?.(-1)"
+                <button id="prevBtn"
                     class="btn-ghost px-4 py-2 rounded-lg border border-[color:var(--border)]">⏮ Prev</button>
                 <span id="pageNumber" class="text-lg font-medium text-[color:var(--text)]">Page 1</span>
-                <button id="nextBtn" onclick="window.searchPage?.changePage?.(1)"
+                <button id="nextBtn"
                     class="btn-ghost px-4 py-2 rounded-lg border border-[color:var(--border)]">Next ⏭</button>
             </div>
         </section>

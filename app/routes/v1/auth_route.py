@@ -13,6 +13,7 @@ from flask_jwt_extended import (
     get_jwt, set_access_cookies, unset_jwt_cookies
 )
 from app.utils.decorator import require_roles
+from app.security_utils import rate_limit, ip_and_path_key, ip_key
 from app.extensions import db
 from werkzeug.utils import secure_filename
 import os
@@ -29,6 +30,7 @@ ADMIN_ROLE = Config.ADMIN_ROLE
 
 # -------------------- REGISTER --------------------
 @auth_bp.route("/register", methods=["POST"])
+@rate_limit(ip_and_path_key, limit=10, window_sec=300)
 def register():
     data = request.get_json()
     current_app.logger.info("Received registration data: %s", {k: v for k, v in data.items() if k != "password"})
@@ -54,7 +56,11 @@ def register():
             return jsonify(message="Employee ID already exists"), 409
 
         # Hash the password securely
-        user.set_password(data.get("password"))
+        try:
+            user.set_password(data.get("password"))
+        except ValueError as pe:
+            current_app.logger.warning(f"Weak password attempt for user {user.username}: {pe}")
+            return jsonify(message=str(pe)), 400
         current_app.logger.info(f"🔒 Password set for user: {user.username}")
 
 
@@ -84,6 +90,7 @@ def register():
 
 
 @auth_bp.route('/login', methods=['POST'])
+@rate_limit(ip_and_path_key, limit=20, window_sec=300)
 def login():
     current_app.logger.info("Received login request")
     try:
@@ -208,6 +215,7 @@ def login():
     return resp, 200
 
 @auth_bp.route('/generate-otp', methods=['POST'])
+@rate_limit(ip_and_path_key, limit=5, window_sec=300)
 def generate_otp():
     try:
         data = request.get_json(force=True)
@@ -443,6 +451,7 @@ def employee_lookup():
     return json_error("employee_id or mobile required")
 
 @auth_bp.route('/verify-otp', methods=['POST'])
+@rate_limit(ip_and_path_key, limit=15, window_sec=300)
 def verify_otp():
     try:
         data = request.get_json(force=True)
@@ -470,6 +479,7 @@ def verify_otp():
 
 
 @auth_bp.route('/create-account', methods=['POST'])
+@rate_limit(ip_and_path_key, limit=10, window_sec=600)
 def create_account():
     """Finalize account after OTP verification.
     Accepts: username, email, password, mobile, optional employee_id, optional temp_upload_id.
@@ -500,7 +510,10 @@ def create_account():
 
     user.username = data['username']
     user.email = data['email']
-    user.set_password(data['password'])
+    try:
+        user.set_password(data['password'])
+    except ValueError as pe:
+        return jsonify({'msg': str(pe)}), 400
 
     # Link temp uploaded document if present
     if temp_upload_id:
@@ -537,6 +550,7 @@ def create_account():
     return jsonify({'msg': 'account created', 'user_id': str(user.id)}), 200
 
 @auth_bp.route('/upload-temp-id', methods=['POST'])
+@rate_limit(ip_and_path_key, limit=10, window_sec=600)
 def upload_temp_id():
     """Upload ID document before account creation.
     Stores file with a temporary token and returns temp_upload_id.
@@ -552,6 +566,10 @@ def upload_temp_id():
     os.makedirs(upload_dir, exist_ok=True)
     temp_id = uuid.uuid4().hex
     safe = secure_filename(f.filename)
+    allowed_ext = {'.png', '.jpg', '.jpeg', '.pdf'}
+    ext = (safe.rsplit('.',1)[-1]).lower() if '.' in safe else ''
+    if ext and f'.{ext}' not in allowed_ext:
+        return jsonify({'msg': 'unsupported file type'}), 400
     dest = os.path.join(upload_dir, f"temp_{temp_id}_{safe}")
     try:
         f.save(dest)
@@ -562,6 +580,7 @@ def upload_temp_id():
 
 
 @auth_bp.route('/upload-id/<user_id>', methods=['POST'])
+@rate_limit(ip_and_path_key, limit=10, window_sec=600)
 def upload_id(user_id):
     # Accept file upload (PDF) and mark document_submitted=True
     if 'file' not in request.files:
@@ -570,6 +589,10 @@ def upload_id(user_id):
     if f.filename == '':
         return jsonify({'msg': 'empty filename'}), 400
     filename = secure_filename(f.filename)
+    allowed_ext = {'.png', '.jpg', '.jpeg', '.pdf'}
+    ext = (filename.rsplit('.',1)[-1]).lower() if '.' in filename else ''
+    if ext and f'.{ext}' not in allowed_ext:
+        return jsonify({'msg': 'unsupported file type'}), 400
     upload_dir = current_app.config.get('UPLOAD_FOLDER', '/tmp/uploads')
     os.makedirs(upload_dir, exist_ok=True)
     dest = os.path.join(upload_dir, f"{user_id}_{filename}")
@@ -757,6 +780,7 @@ def about_me():
 
 # -------------------- PASSWORD RESET --------------------
 @auth_bp.route('/forgot-password', methods=['POST'])
+@rate_limit(ip_and_path_key, limit=5, window_sec=900)
 def forgot_password():
     """Initiate password reset. Accepts email or mobile. Sends token via chosen channel."""
     try:

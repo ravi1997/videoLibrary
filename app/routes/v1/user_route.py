@@ -1,12 +1,12 @@
 # routes/user_routes.py
 
 import traceback
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify, session, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.schemas.user_schema import UserSchema, UserSettingsSchema
 from app.utils.decorator import require_roles
 from app.models.User import User, UserSettings, UserType, Role, MAX_OTP_RESENDS, PASSWORD_EXPIRATION_DAYS
-from mongoengine.errors import NotUniqueError, ValidationError
+from app.security_utils import rate_limit, ip_and_path_key
 from functools import wraps
 from datetime import datetime, timedelta, timezone
 import uuid
@@ -19,6 +19,7 @@ user_bp = Blueprint("user_bp", __name__)
 
 @user_bp.route("/change-password", methods=["POST","PUT"])
 @jwt_required()
+@rate_limit(ip_and_path_key, limit=5, window_sec=900)
 def change_password():
     data = request.json or {}
     user_id = get_jwt_identity()
@@ -27,7 +28,10 @@ def change_password():
         return jsonify({"message": "User not found"}), 404
     if not user.check_password(data.get("current_password", "")):
         return jsonify({"message": "Current password incorrect"}), 400
-    user.set_password(data.get("new_password"))
+    try:
+        user.set_password(data.get("new_password"))
+    except ValueError as ve:
+        return jsonify({"message": str(ve)}), 400
     db.session.commit()
     return jsonify({"message": "Password changed"}), 200
 
@@ -77,15 +81,15 @@ def auth_status():
 @jwt_required()
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def list_users():
-    q = User.objects
-    return jsonify([u.to_dict() for u in q]), 200
+    users = User.query.order_by(User.created_at.asc()).all()
+    return jsonify([u.to_dict() for u in users]), 200
 
 
 @user_bp.route("/users/<user_id>", methods=["GET"])
 @jwt_required()
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def get_user(user_id):
-    user = User.objects(id=user_id).first()
+    user = User.query.filter_by(id=user_id).first()
     if not user:
         return jsonify({"message": "User not found"}), 404
     return jsonify(user.to_dict()), 200
@@ -95,27 +99,42 @@ def get_user(user_id):
 @jwt_required()
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def create_user():
-    data = request.json or {}
+    data = request.get_json(force=True, silent=True) or {}
+    password = data.pop("password", None)
     try:
         user = User(**data)
-        if data.get("password"):
-            user.set_password(data["password"])
-        user.save()
+        if password:
+            user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
         return jsonify(user.to_dict()), 201
-    except (NotUniqueError, ValidationError) as err:
-        return jsonify({"message": str(err)}), 400
+    except ValueError as ve:
+        db.session.rollback()
+        return jsonify({"message": str(ve)}), 400
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("create_user failed")
+        return jsonify({"message": "Internal error"}), 500
 
 
 @user_bp.route("/users/<user_id>", methods=["PUT"])
 @jwt_required()
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def update_user(user_id):
-    user = User.objects(id=user_id).first()
+    user = User.query.filter_by(id=user_id).first()
     if not user:
         return jsonify({"message": "User not found"}), 404
     data = request.json or {}
-    user.modify(**data)
-    user.save()
+    for k, v in (data or {}).items():
+        if k == 'password_hash':
+            continue
+        if hasattr(user, k):
+            setattr(user, k, v)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({"message": "Update failed"}), 500
     return jsonify(user.to_dict()), 200
 
 
@@ -123,10 +142,15 @@ def update_user(user_id):
 @jwt_required()
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def delete_user(user_id):
-    user = User.objects(id=user_id).first()
+    user = User.query.filter_by(id=user_id).first()
     if not user:
         return jsonify({"message": "User not found"}), 404
-    user.delete()
+    try:
+        db.session.delete(user)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({"message": "Delete failed"}), 500
     return jsonify({"message": "User deleted"}), 200
 
 
@@ -134,10 +158,11 @@ def delete_user(user_id):
 @jwt_required()
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def lock_user(user_id):
-    user = User.objects(id=user_id).first()
+    user = User.query.filter_by(id=user_id).first()
     if not user:
         return jsonify({"message": "User not found"}), 404
     user.lock_account()
+    db.session.commit()
     return jsonify({"message": f"User {user.id} locked"}), 200
 
 
@@ -145,10 +170,11 @@ def lock_user(user_id):
 @jwt_required()
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def unlock_user(user_id):
-    user = User.objects(id=user_id).first()
+    user = User.query.filter_by(id=user_id).first()
     if not user:
         return jsonify({"message": "User not found"}), 404
     user.unlock_account()
+    db.session.commit()
     return jsonify({"message": f"User {user.id} unlocked"}), 200
 
 
@@ -156,11 +182,11 @@ def unlock_user(user_id):
 @jwt_required()
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def reset_otp_count(user_id):
-    user = User.objects(id=user_id).first()
+    user = User.query.filter_by(id=user_id).first()
     if not user:
         return jsonify({"message": "User not found"}), 404
     user.otp_resend_count = 0
-    user.save()
+    db.session.commit()
     return jsonify({"message": f"OTP count reset for {user.id}"}), 200
 
 # ─── Security Endpoints ─────────────────────────────────
@@ -173,12 +199,11 @@ def extend_password_expiry():
     data = request.json or {}
     uid = data.get("user_id")
     days = data.get("days", PASSWORD_EXPIRATION_DAYS)
-    user = User.objects(id=uid).first()
+    user = User.query.filter_by(id=uid).first()
     if not user:
         return jsonify({"message": "User not found"}), 404
-    user.password_expiration = datetime.now(
-        timezone.utc) + timedelta(days=days)
-    user.save()
+    user.password_expiration = datetime.now(timezone.utc) + timedelta(days=days)
+    db.session.commit()
     return jsonify({"message": "Password expiry extended"}), 200
 
 
@@ -186,25 +211,28 @@ def extend_password_expiry():
 @jwt_required()
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def lock_status(user_id):
-    user = User.objects(id=user_id).first()
+    user = User.query.filter_by(id=user_id).first()
     if not user:
         return jsonify({"message": "User not found"}), 404
     return jsonify({"locked": user.is_locked()}), 200
 
 
 @user_bp.route("/security/resend-otp", methods=["POST"])
+@rate_limit(ip_and_path_key, limit=5, window_sec=600)
 def resend_otp():
-    data = request.json or {}
+    data = request.get_json(force=True, silent=True) or {}
     mobile = data.get("mobile")
-    user = User.objects(mobile=mobile).first()
+    user = User.query.filter_by(mobile=mobile).first()
     if not user:
         return jsonify({"message": "User not found"}), 404
     if user.is_locked():
         return jsonify({"message": "Account locked"}), 403
     user.resend_otp()
-    user.save()
-    otp = user.otp
-    return jsonify({"message": "OTP resent", "otp": otp}), 200
+    db.session.commit()
+    payload = {"message": "OTP resent"}
+    if current_app.config.get("DEBUG"):
+        payload["otp"] = user.otp
+    return jsonify(payload), 200
 
 
 DEFAULTS = {

@@ -3,10 +3,12 @@ from dotenv import load_dotenv
 
 # Load environment variables from a .env file if it exists
 load_dotenv()
-print("Loaded SECRET_KEY:", os.getenv("DATABASE_URI"))
+# SECURITY: avoid printing secrets / connection strings in stdout
+
 
 class Config:
-    DEBUG = True
+    # Default to False; individual env config classes can override
+    DEBUG = False
     MY_ENVIRONMENT = "PRODUCTION"
     SECRET_KEY = os.getenv("SECRET_KEY", "your_secret_key")
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URI", "sqlite:///app.db")
@@ -37,8 +39,9 @@ class Config:
     JWT_BLACKLIST_ENABLED = True
     JWT_BLACKLIST_TOKEN_CHECKS = ["access"]
     JWT_ACCESS_COOKIE_NAME = "access_token_cookie"
-    JWT_COOKIE_SECURE = False
-    JWT_COOKIE_CSRF_PROTECT = False
+    # Harden cookie defaults (can be relaxed for local dev)
+    JWT_COOKIE_SECURE = os.getenv("JWT_COOKIE_SECURE", "true").lower() == "true"
+    JWT_COOKIE_CSRF_PROTECT = os.getenv("JWT_COOKIE_CSRF_PROTECT", "true").lower() == "true"
     JWT_TOKEN_LOCATION = ["headers", "cookies"]
 
     # Roles
@@ -60,10 +63,16 @@ class Config:
     CDAC_SERVER = os.getenv("CDAC_SERVER", "")
 
     UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "/app/uploads")
+    # Public playback toggle (if true, exposes /api/v1/video/public/* endpoints without JWT)
+    ALLOW_PUBLIC_PLAYBACK = os.getenv("ALLOW_PUBLIC_PLAYBACK", "false").lower() == "true"
 
 class DevelopmentConfig(Config):
+    DEBUG = True
     SQLALCHEMY_DATABASE_URI = os.getenv("DEVELOPMENT_DATABASE_URI", "sqlite:///dev.db")
     MY_ENVIRONMENT = "DEVELOPMENT"
+    # Permit insecure cookies in dev for convenience
+    JWT_COOKIE_SECURE = False
+    JWT_COOKIE_CSRF_PROTECT = False
     MONGODB_SETTINGS = {
         'db': os.getenv("DEV_MONGODB_DB", "devdb"),
         'host': os.getenv("DEV_MONGODB_HOST", "localhost"),

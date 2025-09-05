@@ -136,8 +136,7 @@
             <!-- Category selector -->
             <div class="flex items-center gap-2">
                 <label for="categorySelect" class="label m-0">Category</label>
-                <select id="categorySelect" class="select max-w-xs"
-                    onchange="window.indexPage?.onCategoryChange?.(this.value)">
+                <select id="categorySelect" class="select max-w-xs">
                     <option value="">All</option>
                     <option value="retina">Retina</option>
                     <option value="cataract">Cataract</option>
@@ -169,10 +168,10 @@
         <div class="flex flex-wrap gap-3 items-center justify-between">
             <!-- Quick filter chips -->
             <div id="quickChips" class="chips flex flex-wrap gap-2">
-                <button class="chip" onclick="window.indexPage?.onCategoryChange?.('retina')">Retina</button>
-                <button class="chip" onclick="window.indexPage?.onCategoryChange?.('cataract')">Cataract</button>
-                <button class="chip" onclick="window.indexPage?.onCategoryChange?.('cornea')">Cornea</button>
-                <button class="chip" onclick="window.indexPage?.onCategoryChange?.('pediatric')">Pediatric</button>
+                <button class="chip" data-category="retina">Retina</button>
+                <button class="chip" data-category="cataract">Cataract</button>
+                <button class="chip" data-category="cornea">Cornea</button>
+                <button class="chip" data-category="pediatric">Pediatric</button>
             </div>
 
             <!-- Active tag filters (injected dynamically by JS) -->
@@ -189,17 +188,17 @@
     <div class="flex items-center gap-2 border-b border-[color:var(--border)]">
         <button
             class="tab-btn px-4 py-2 font-semibold text-[color:var(--text)] border-b-2 border-transparent hover:border-[color:var(--brand-600)]"
-            data-tab="trendingTab" onclick="window.indexPage?.switchTab?.('trendingTab')">
+            data-tab="trendingTab">
             📈 Trending
         </button>
         <button
             class="tab-btn px-4 py-2 font-semibold text-[color:var(--text)] border-b-2 border-transparent hover:border-[color:var(--brand-600)]"
-            data-tab="newTab" onclick="window.indexPage?.switchTab?.('newTab')">
+            data-tab="newTab">
             🆕 New
         </button>
         <button
             class="tab-btn px-4 py-2 font-semibold text-[color:var(--text)] border-b-2 border-transparent hover:border-[color:var(--brand-600)]"
-            data-tab="allTab" onclick="window.indexPage?.switchTab?.('allTab')">
+            data-tab="allTab">
             🎬 All
         </button>
     </div>
@@ -230,8 +229,7 @@
         <div class="flex items-center justify-between mb-4 mt-2">
             <div class="text-sm text-[color:var(--text-muted)]">Showing <span id="totalCount">0</span> results</div>
             <div class="flex items-center gap-2">
-                <button id="viewToggle" class="btn-ghost px-3 py-2 rounded-lg border border-[color:var(--border)]"
-                    onclick="window.indexPage?.toggleView?.()">
+                <button id="viewToggle" class="btn-ghost px-3 py-2 rounded-lg border border-[color:var(--border)]">
                     Toggle Grid/List
                 </button>
             </div>
@@ -240,11 +238,9 @@
 
         <!-- Pagination -->
         <div class="mt-8 flex items-center justify-center gap-4">
-            <button id="prevBtn" onclick="window.indexPage?.changePage?.(-1)"
-                class="btn-ghost px-4 py-2 rounded-lg border border-[color:var(--border)]">⏮ Prev</button>
+            <button id="prevBtn" class="btn-ghost px-4 py-2 rounded-lg border border-[color:var(--border)]">⏮ Prev</button>
             <span id="pageNumber" class="text-lg font-medium text-[color:var(--text)]">Page 1</span>
-            <button id="nextBtn" onclick="window.indexPage?.changePage?.(1)"
-                class="btn-ghost px-4 py-2 rounded-lg border border-[color:var(--border)]">Next ⏭</button>
+            <button id="nextBtn" class="btn-ghost px-4 py-2 rounded-lg border border-[color:var(--border)]">Next ⏭</button>
         </div>
     </div>
 </section>
@@ -259,29 +255,9 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-    // minimal tab controller so the page looks/feels polished even before index.js arrives
-    (function () {
-        const tabs = document.querySelectorAll(".tab-btn");
-        const panels = document.querySelectorAll(".tab-panel");
-        function switchTab(id) {
-            panels.forEach(p => p.classList.toggle("hidden", p.id !== id));
-            tabs.forEach(t => {
-                const active = t.getAttribute("data-tab") === id;
-                t.classList.toggle("border-[color:var(--brand-600)]", active);
-            });
-            // Persist selected tab for UX
-            localStorage.setItem("index.activeTab", id);
-        }
-        window.indexPage = Object.assign(window.indexPage || {}, { switchTab });
-
-        // restore last tab
-        const saved = localStorage.getItem("index.activeTab") || "trendingTab";
-        switchTab(saved);
-    })();
-</script>
-
-<!-- Your main page logic (populate lists, wire filters, etc.) -->
+<!-- Early bootstrap (replaces removed inline script) -->
+<script src="{{ url_for('static', filename='js/index_bootstrap.js') }}"></script>
+<!-- Main page logic -->
 <script src="{{ url_for('static', filename='js/index.js') }}"></script>
 
 <!-- Card template (for JS to clone & fill) -->

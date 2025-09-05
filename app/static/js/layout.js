@@ -233,6 +233,46 @@
     } catch { /* ignore */ }
   }
 
+  // ------------------ Global 401 Auto-Redirect ------------------
+  // Intercept fetch & XHR responses; on 401/403 clear auth + redirect to /login?next=<current>
+  // Avoid infinite loops by: (a) skipping on /login routes, (b) one-time session lock.
+  function handleAuthFailure(status) {
+    if (!(status === 401 || status === 403)) return;
+    const path = window.location.pathname;
+    if (path.startsWith('/login')) return; // already on login
+    if (sessionStorage.getItem('__auth_redirect_lock')) return; // prevent loops
+    sessionStorage.setItem('__auth_redirect_lock', '1');
+    clearAuthStorage();
+    const ret = encodeURIComponent(path + window.location.search);
+    try { window.location.replace(`/login?next=${ret}`); } catch { window.location.href = `/login?next=${ret}`; }
+  }
+
+  // Patch fetch once
+  if (!window.__FETCH_401_PATCHED) {
+    window.__FETCH_401_PATCHED = true;
+    const origFetch = window.fetch;
+    window.fetch = async function patchedFetch(input, init) {
+      try {
+        const resp = await origFetch(input, init);
+        handleAuthFailure(resp.status);
+        return resp;
+      } catch (e) {
+        // network errors ignored here
+        throw e;
+      }
+    };
+  }
+
+  // Patch XHR once
+  if (!window.__XHR_401_PATCHED) {
+    window.__XHR_401_PATCHED = true;
+    const OrigSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.send = function patchedSend(...args) {
+      this.addEventListener('load', () => handleAuthFailure(this.status));
+      return OrigSend.apply(this, args);
+    };
+  }
+
 
   // ------------------ Search ------------------
   // Minimal stub: redirects to /search?q=...
@@ -243,8 +283,11 @@
     if (!q) return;
     window.location.href = `/search?q=${encodeURIComponent(q)}`;
   }
-  // Expose for inline onclick in layout.html
-  window.searchVideos = searchVideos;
+  // Bind search button (CSP-safe)
+  function bindSearchButton() {
+    const btn = document.getElementById("searchBtn");
+    if (btn) btn.addEventListener("click", searchVideos);
+  }
 
   // Submit on Enter
   function bindSearchEnter() {
@@ -273,7 +316,8 @@
   function init() {
     initTheme();
     renderAuthArea();
-    bindSearchEnter();
+  bindSearchEnter();
+  bindSearchButton();
 
     // Theme toggle click
     const themeBtn = document.getElementById("themeToggle");

@@ -2,6 +2,7 @@ import logging
 from functools import wraps
 from flask import jsonify, current_app, g
 from flask_jwt_extended import get_jwt, verify_jwt_in_request
+from flask_jwt_extended.exceptions import CSRFError, NoAuthorizationError, JWTExtendedException
 
 
 def require_roles(*allowed_roles: str, require_all: bool = False):
@@ -52,9 +53,17 @@ def require_roles(*allowed_roles: str, require_all: bool = False):
                 g.current_user_id = user_id
                 return func(*args, **kwargs)
 
-            except Exception as e:
-                current_app.logger.exception(
-                    "❗Error in role-based access control.")
+            except CSRFError as e:
+                current_app.logger.warning(f"CSRF token missing/invalid: {e}")
+                return jsonify({'error': 'Missing or invalid CSRF token'}), 401
+            except NoAuthorizationError as e:
+                current_app.logger.warning(f"Authorization missing: {e}")
+                return jsonify({'error': 'Authorization required'}), 401
+            except JWTExtendedException as e:
+                current_app.logger.warning(f"JWT error: {e}")
+                return jsonify({'error': 'Invalid token'}), 401
+            except Exception:
+                current_app.logger.exception("❗Error in role-based access control.")
                 return jsonify({'error': 'Internal server error'}), 500
 
         return wrapper

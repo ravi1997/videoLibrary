@@ -1,0 +1,85 @@
+{
+  "info": {
+    "name": "VideoLibrary API",
+    "_postman_id": "7c1fb3d8-3a6e-45f1-9b40-7c9c5c9a0abc",
+    "description": "Postman collection for Video Library backend (JWT + HLS). Set base_url and jwt_token in variables. Upload + metadata, auth, user mgmt, videos, search, stats, public playback.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "base_url", "value": "http://127.0.0.1:5000/api/v1"},
+    {"key": "jwt_token", "value": ""}
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{"key": "token", "value": "{{jwt_token}}", "type": "string"}]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "exec": [
+          "// Automatically set Authorization header if jwt_token present",
+          "if (pm.collectionVariables.get('jwt_token')) {",
+          "  pm.request.headers.upsert({ key: 'Authorization', value: 'Bearer ' + pm.collectionVariables.get('jwt_token') });",
+          "}"
+        ],
+        "type": "text/javascript"
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+            "request": {"method": "POST","header": [{"key":"Content-Type","value":"application/json"}],"url": "{{base_url}}/auth/register","body": {"mode": "raw","raw": "{\n  \"username\": \"alice\",\n  \"email\": \"alice@example.com\",\n  \"password\": \"Str0ng!Pass1!\",\n  \"mobile\": \"+1555000111\",\n  \"roles\": [\"viewer\"]\n}"}},
+            "response": []
+        },
+        {"name": "Login (Password)","request": {"method": "POST","header": [{"key":"Content-Type","value":"application/json"}],"url": "{{base_url}}/auth/login","body": {"mode": "raw","raw": "{\n  \"email\": \"alice@example.com\",\n  \"password\": \"Str0ng!Pass1!\"\n}"}},"event": [{"listen": "test","script": {"type": "text/javascript","exec": ["if (pm.response.code === 200) {","  try {","    var data = pm.response.json();","    if (data.access_token) {","      pm.collectionVariables.set('jwt_token', data.access_token);","      console.log('JWT token stored.');","    }","  } catch(e){}","}"]}}]},
+        {"name": "Generate OTP","request": {"method": "POST","header": [{"key":"Content-Type","value":"application/json"}],"url": "{{base_url}}/auth/generate-otp","body": {"mode": "raw","raw": "{\n  \"mobile\": \"+1555000111\"\n}"}}},
+        {"name": "Verify OTP","request": {"method": "POST","header": [{"key":"Content-Type","value":"application/json"}],"url": "{{base_url}}/auth/verify-otp","body": {"mode": "raw","raw": "{\n  \"mobile\": \"+1555000111\",\n  \"otp\": \"123456\"\n}"}}},
+        {"name": "Create Account (Finalize)","request": {"method": "POST","header": [{"key":"Content-Type","value":"application/json"}],"url": "{{base_url}}/auth/create-account","body": {"mode": "raw","raw": "{\n  \"username\": \"alice\",\n  \"email\": \"alice@example.com\",\n  \"password\": \"Str0ng!Pass1!\",\n  \"mobile\": \"+1555000111\"\n}"}}},
+        {"name": "Me","request": {"method": "GET","url": "{{base_url}}/auth/me"}},
+        {"name": "Logout","request": {"method": "POST","url": "{{base_url}}/auth/logout"}}
+      ]
+    },
+    {
+      "name": "User",
+      "item": [
+        {"name": "Change Password","request": {"method": "POST","header": [{"key":"Content-Type","value":"application/json"}],"url": "{{base_url}}/user/change-password","body": {"mode": "raw","raw": "{\n  \"current_password\": \"Str0ng!Pass1!\",\n  \"new_password\": \"Str0ng!Pass2!\"\n}"}}},
+        {"name": "Get Settings","request": {"method": "GET","url": "{{base_url}}/user/settings"}},
+        {"name": "Update Settings","request": {"method": "PUT","header": [{"key":"Content-Type","value":"application/json"}],"url": "{{base_url}}/user/settings","body": {"mode": "raw","raw": "{\n  \"theme\": \"dark\",\n  \"autoplay\": true\n}"}}}
+      ]
+    },
+    {
+      "name": "Videos",
+      "item": [
+        {"name": "Upload Video","request": {"method": "POST","url": "{{base_url}}/video/upload","header": [{"key": "Content-Type","value": "multipart/form-data"}],"body": {"mode": "formdata","formdata": [ {"key": "file","type": "file","src": "<path_to_video_file>"} ]}}},
+        {"name": "Create Metadata","request": {"method": "POST","header": [{"key":"Content-Type","value":"application/json"}],"url": "{{base_url}}/video/","body": {"mode": "raw","raw": "{\n  \"uuid\": \"<replace_with_video_uuid>\",\n  \"title\": \"Sample Video\",\n  \"description\": \"Demo upload\",\n  \"transcript\": null,\n  \"category\": {\"name\": \"Training\"},\n  \"tags\": [{\"name\": \"demo\"}],\n  \"surgeons\": []\n}"}}},
+        {"name": "Get Video","request": {"method": "GET","url": "{{base_url}}/video/<video_uuid>"}},
+        {"name": "List Videos","request": {"method": "GET","url": "{{base_url}}/video/?page=1&per_page=12"}},
+        {"name": "Search Videos","request": {"method": "GET","url": "{{base_url}}/video/search?q=demo&sort=recent"}},
+        {"name": "Recommendations","request": {"method": "GET","url": "{{base_url}}/video/<video_uuid>/recommendations"}},
+        {"name": "Watch Next","request": {"method": "GET","url": "{{base_url}}/video/<video_uuid>/watch-next"}},
+        {"name": "Progress Save","request": {"method": "POST","header": [{"key":"Content-Type","value":"application/json"}],"url": "{{base_url}}/video/progress","body": {"mode": "raw","raw": "{\n  \"video_id\": \"<video_uuid>\",\n  \"position\": 42.5\n}"}}},
+        {"name": "Progress Get","request": {"method": "GET","url": "{{base_url}}/video/progress/<video_uuid>"}},
+        {"name": "History Latest","request": {"method": "GET","url": "{{base_url}}/video/history/latest"}},
+        {"name": "Favorites List","request": {"method": "GET","url": "{{base_url}}/video/favorite"}},
+        {"name": "Favorite Add","request": {"method": "POST","url": "{{base_url}}/video/<video_uuid>/favorite"}},
+        {"name": "Favorite Remove","request": {"method": "DELETE","url": "{{base_url}}/video/<video_uuid>/favorite"}},
+        {"name": "Stats","request": {"method": "GET","url": "{{base_url}}/video/stats"}},
+        {"name": "Public Master (Optional)","request": {"method": "GET","url": "{{base_url}}/video/public/hls/<video_uuid>/master.m3u8"}},
+        {"name": "Public Segment (Optional)","request": {"method": "GET","url": "{{base_url}}/video/public/hls/<video_uuid>/segments/enc_segment_000.ts"}}
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {"name": "List Unverified Users","request": {"method": "GET","url": "{{base_url}}/auth/unverified"}},
+        {"name": "Verify User","request": {"method": "POST","header": [{"key":"Content-Type","value":"application/json"}],"url": "{{base_url}}/auth/verify-user","body": {"mode": "raw","raw": "{\n  \"user_id\": \"<uuid>\"\n}"}}},
+        {"name": "Discard User","request": {"method": "POST","header": [{"key":"Content-Type","value":"application/json"}],"url": "{{base_url}}/auth/discard-user","body": {"mode": "raw","raw": "{\n  \"user_id\": \"<uuid>\"\n}"}}}
+      ]
+    }
+  ]
+}

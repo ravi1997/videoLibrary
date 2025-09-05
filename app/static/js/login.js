@@ -80,3 +80,34 @@ async function login() {
         errorBox.classList.remove("hidden");
     }
 }
+
+// DOM bootstrap moved from inline script (CSP compliance)
+document.addEventListener("DOMContentLoaded", () => {
+    const form = document.querySelector('form[data-js="login-form"]');
+    if (form) {
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            login();
+        });
+    }
+
+    const pwd = document.getElementById("password");
+    const btn = document.getElementById("togglePwd");
+    if (btn && pwd) {
+        btn.addEventListener("click", () => {
+            const show = pwd.type === "password";
+            pwd.type = show ? "text" : "password";
+            btn.textContent = show ? "Hide" : "Show";
+            btn.setAttribute("aria-label", show ? "Hide password" : "Show password");
+            btn.setAttribute("aria-pressed", String(show));
+            pwd.focus({ preventScroll: true });
+        });
+    }
+
+    document.querySelectorAll(".input").forEach((el) => {
+        el.addEventListener("focus", () => el.classList.add("ring-1", "ring-[color:var(--brand-600)]"));
+        el.addEventListener("blur", () => el.classList.remove("ring-1", "ring-[color:var(--brand-600)]"));
+    });
+
+    window.__getRememberMe = () => !!document.getElementById("rememberMe")?.checked;
+});

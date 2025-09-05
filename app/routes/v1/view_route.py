@@ -115,5 +115,5 @@ def privacy_page():
 @view_bp.route('/admin/unverified')
 @jwt_required()
 @require_roles('admin','superadmin')
-def admin_unverified_page(user_id):  # injected by decorator
+def admin_unverified_page():  # injected by decorator
     return render_template('admin_unverified.html')

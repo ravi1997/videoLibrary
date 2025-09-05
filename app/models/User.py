@@ -16,6 +16,7 @@ from sqlalchemy.orm import relationship
 from flask import current_app
 
 from app.models.enumerations import Role, UserType
+from app.security_utils import password_strong
 
 from ..extensions import db
 
@@ -148,11 +149,11 @@ class User(db.Model):
         return True
 
     def set_password(self, raw_password: str):
+        if not password_strong(raw_password):
+            raise ValueError("Password does not meet complexity requirements")
         salt = bcrypt.gensalt()
-        self.password_hash = bcrypt.hashpw(
-            raw_password.encode(), salt).decode()
-        self.password_expiration = datetime.now(
-            timezone.utc) + timedelta(days=PASSWORD_EXPIRATION_DAYS)
+        self.password_hash = bcrypt.hashpw(raw_password.encode(), salt).decode()
+        self.password_expiration = datetime.now(timezone.utc) + timedelta(days=PASSWORD_EXPIRATION_DAYS)
 
     def check_password(self, raw_password: str) -> bool:
         try:

@@ -14,12 +14,24 @@
     <input type="file" id="fileInput" accept="video/*" class="hidden" />
 
     <!-- Upload Button -->
-    <button onclick="uploadFile()" class="btn-primary">Upload</button>
+    <button id="uploadBtn" class="btn-primary">Upload</button>
 
-    <!-- Progress Bar -->
-    <div id="progressContainer" class="w-full bg-[color:var(--border)] rounded h-4 mt-4 hidden">
-        <div id="progressBar" class="h-4 bg-[color:var(--brand-600)] rounded transition-all duration-200 ease-out"
-            style="width: 0%"></div>
+    <!-- Progress Bar + details -->
+    <div id="progressContainer" class="w-full mt-4 hidden space-y-2">
+        <div class="w-full bg-[color:var(--border)] rounded h-4 overflow-hidden">
+            <div id="progressBar" class="h-4 bg-[color:var(--brand-600)] transition-all duration-200 ease-out" style="width:0%"></div>
+        </div>
+        <div class="flex items-center justify-between text-xs muted">
+            <span id="progressLabel">0%</span>
+            <span id="progressSpeed">0 MB/s</span>
+            <span id="progressEta">ETA —</span>
+            <span id="retryInfo" class="hidden">Retries: 0</span>
+            <div class="flex items-center gap-2">
+                <button id="pauseUploadBtn" class="btn-ghost px-2 py-1 rounded-lg border border-[color:var(--border)] hidden">Pause</button>
+                <button id="cancelUploadBtn" class="btn-ghost px-2 py-1 rounded-lg border border-[color:var(--border)] hidden">Cancel</button>
+                <button id="resumeUploadBtn" class="btn-ghost px-2 py-1 rounded-lg border border-[color:var(--border)] hidden">Resume</button>
+            </div>
+        </div>
     </div>
 
     <!-- Status -->
@@ -51,7 +63,7 @@
         <input list="surgeonList" id="surgeonInput" placeholder="Type surgeon and press comma" class="w-full input" />
         <datalist id="surgeonList"></datalist>
 
-        <button onclick="submitMetadata()" class="btn-success w-full">
+    <button id="saveMetaBtn" class="btn-success w-full">
             💾 Save Metadata
         </button>
     </div>
