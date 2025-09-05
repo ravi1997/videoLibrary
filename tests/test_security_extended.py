@@ -53,6 +53,29 @@ def uploader_header(uploader):
     return {'Authorization': f'Bearer {token}'}
 
 
+def test_refresh_flow(client, user):
+    # mark user verified so login works
+    user.is_verified = True
+    from app.extensions import db as _db
+    _db.session.commit()
+    # login
+    r = client.post('/api/v1/auth/login', json={'email': user.email, 'password':'Str0ng!Pass1'})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert 'access_token' in body and 'refresh_token' in body
+    old_access = body['access_token']
+    refresh = body['refresh_token']
+    # refresh
+    r2 = client.post('/api/v1/auth/refresh', json={'refresh_token':refresh})
+    assert r2.status_code == 200
+    body2 = r2.get_json()
+    assert 'access_token' in body2 and 'refresh_token' in body2
+    assert body2['access_token'] != old_access
+    # reuse old refresh should now fail (rotated)
+    r3 = client.post('/api/v1/auth/refresh', json={'refresh_token':refresh})
+    assert r3.status_code in (401,400)
+
+
 def test_csp_header_present(client):
     resp = client.get('/')
     assert 'Content-Security-Policy' in resp.headers

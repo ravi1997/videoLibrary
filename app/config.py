@@ -43,6 +43,11 @@ class Config:
     JWT_COOKIE_SECURE = os.getenv("JWT_COOKIE_SECURE", "true").lower() == "true"
     JWT_COOKIE_CSRF_PROTECT = os.getenv("JWT_COOKIE_CSRF_PROTECT", "true").lower() == "true"
     JWT_TOKEN_LOCATION = ["headers", "cookies"]
+    # Lifetimes (can be overridden by env). Access short-lived; refresh long-lived
+    from datetime import timedelta
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=int(os.getenv("JWT_ACCESS_TOKEN_MINUTES", "15")))
+    REFRESH_TOKEN_EXPIRES_MINUTES = int(os.getenv("REFRESH_TOKEN_EXPIRES_MINUTES", "43200"))  # 30 days default
+
 
     # Roles
     ADMIN_ROLE = "admin"

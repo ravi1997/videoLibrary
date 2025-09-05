@@ -1,0 +1,54 @@
+{% extends 'layout.html' %}
+{% block title %}Admin Dashboard · RPC Surgical Video Library{% endblock %}
+{% block content %}
+<div class="space-y-5 admin-dashboard">
+  <div class="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+    <div>
+      <h1 class="text-2xl font-bold m-0 flex items-center gap-2">📊 <span>Admin Dashboard</span></h1>
+      <p class="muted text-sm mt-1">Operational overview, system health & recent activity. <span id="refreshStatus">Auto-refresh ON</span> · <span id="lastUpdated" aria-live="polite" class="text-xs"></span></p>
+    </div>
+    <div id="dashboardControls" class="flex gap-2 flex-wrap items-center" aria-label="Dashboard controls">
+      <button id="refreshNow" class="btn btn-ghost text-sm" aria-label="Refresh metrics now">🔄 Refresh</button>
+      <button id="toggleAuto" class="btn btn-ghost text-sm" data-auto="on" aria-pressed="true" aria-label="Pause auto refresh">⏸ Pause Auto</button>
+      <div class="flex items-center gap-1 text-xs" id="timeframeControls" aria-label="Timeframe selection">
+        <button class="tf-btn active" data-range="14" title="Show 14 day sparkline">14d</button>
+        <button class="tf-btn" data-range="30" title="(Coming soon) 30 day range" disabled>30d</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary KPI bar (populated dynamically) -->
+  <div id="kpiBar" class="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5"></div>
+
+  <div id="analyticsArea" class="analytics-area card" aria-label="Trends overview">
+    <div class="analytics-head flex items-center justify-between">
+      <h2 class="m-0 text-sm tracking-wide uppercase">Trends (<span id="trendRangeLabel">14d</span>)</h2>
+      <div class="ts-toggles" id="tsToggles" role="group" aria-label="Metric toggles"></div>
+    </div>
+    <div class="ts-chart-wrap relative">
+      <div id="tsSkeleton" class="ts-skeleton" aria-hidden="true"></div>
+      <canvas id="tsChart" height="240" aria-label="Time series chart"></canvas>
+      <div id="tsTooltip" class="ts-tooltip hidden" role="tooltip"></div>
+    </div>
+    <div id="tsAxisLabels" class="ts-axis-labels"></div>
+  </div>
+  <div id="dashboardRoot" class="dashboard-grid">
+    <div class="dash-skeleton" aria-hidden="true">
+      <div class="sk-row kpi-bar">
+        <div class="sk-block h-14"></div>
+        <div class="sk-block h-14"></div>
+        <div class="sk-block h-14"></div>
+      </div>
+      <div class="sk-grid">
+        <div class="sk-card"></div>
+        <div class="sk-card"></div>
+        <div class="sk-card"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="sparkTooltip" class="spark-tooltip hidden" role="tooltip"></div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/admin_dashboard.js') }}" defer></script>
+{% endblock %}

@@ -15,6 +15,7 @@ from flask_jwt_extended import (
 from app.utils.decorator import require_roles
 from app.security_utils import rate_limit, ip_and_path_key, ip_key
 from app.extensions import db
+from app.models.RefreshToken import RefreshToken
 from werkzeug.utils import secure_filename
 import os
 from sqlalchemy.exc import ProgrammingError, IntegrityError
@@ -166,17 +167,28 @@ def login():
     access_token = create_access_token(
         identity=str(user.id),  # ✅ simple and safe
         additional_claims={
-            # or however you access role
             "roles": [ur.role.value for ur in user.role_associations]
         }
     )
+    # Issue refresh token (persisted, hashed)
+    refresh_ttl = timedelta(minutes=Config.REFRESH_TOKEN_EXPIRES_MINUTES)
+    try:
+        rt_obj, refresh_plain = RefreshToken.create_for_user(user.id, refresh_ttl, request.headers.get('User-Agent'), request.remote_addr)
+    except Exception:
+        current_app.logger.exception("Failed creating refresh token")
+        return _htmx_or_json_error("Internal error", 500)
     user.last_login = datetime.now(timezone.utc)
     user.reset_failed_logins()
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Login DB commit failed")
+        return _htmx_or_json_error("Internal error", 500)
 
     current_app.logger.info(
         f"Issued JWT for user {user.username} (ID: {user.id}), roles: {user.roles}")
-    resp = jsonify(access_token=access_token, success=True)
+    resp = jsonify(access_token=access_token, refresh_token=refresh_plain, success=True)
     set_access_cookies(resp, access_token)
 
     # --- HTMX Response ---
@@ -204,15 +216,59 @@ def login():
             """,
             user=user
         )
-        resp = make_response(html)
-        set_access_cookies(resp, access_token)
+        resp_html = make_response(html)
+        set_access_cookies(resp_html, access_token)
         current_app.logger.info(
             f"Returning HTMX response for user {user.username}")
-        return resp
+        return resp_html
 
     current_app.logger.info(
         f"Returning JSON response for user {user.username}")
     return resp, 200
+
+@auth_bp.route('/refresh', methods=['POST'])
+@rate_limit(ip_and_path_key, limit=30, window_sec=300)
+def refresh_token():
+    """Exchange a valid (non-revoked, unexpired) refresh token for a new access token.
+    Body: {"refresh_token":"..."}
+    Rotates refresh token (old one becomes revoked) to mitigate replay.
+    """
+    try:
+        data = request.get_json(force=True)
+    except Exception:
+        data = request.form or {}
+    supplied = (data.get('refresh_token') or '').strip()
+    if not supplied:
+        return jsonify({'msg': 'refresh_token required'}), 400
+    token_hash = RefreshToken.hash_token(supplied)
+    rt = RefreshToken.query.filter_by(token_hash=token_hash).first()
+    if not rt:
+        # Do not reveal if invalid vs reused
+        return jsonify({'msg': 'invalid refresh token'}), 401
+    if not rt.is_active():
+        return jsonify({'msg': 'expired or revoked'}), 401
+
+    # Rotate (single-use) -> revoke current, issue new
+    user = User.query.get(rt.user_id)
+    if not user or not user.is_active:
+        return jsonify({'msg': 'user inactive'}), 401
+
+    access_token = create_access_token(
+        identity=str(user.id),
+        additional_claims={
+            'roles': [ur.role.value for ur in user.role_associations]
+        }
+    )
+    refresh_ttl = timedelta(minutes=Config.REFRESH_TOKEN_EXPIRES_MINUTES)
+    new_rt, new_plain = RefreshToken.create_for_user(user.id, refresh_ttl, request.headers.get('User-Agent'), request.remote_addr)
+    rt.revoke(replaced_by=new_rt)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('refresh_token: DB commit failed')
+        return jsonify({'msg': 'internal error'}), 500
+    return jsonify({'access_token': access_token, 'refresh_token': new_plain}), 200
 
 @auth_bp.route('/generate-otp', methods=['POST'])
 @rate_limit(ip_and_path_key, limit=5, window_sec=300)
@@ -757,10 +813,26 @@ def logout():
     exp_timestamp = jwt_payload["exp"]
     expires_at = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc)
 
-    # Save to MongoDB (MongoEngine)
-    blocklist=TokenBlocklist(jti=jti, expires_at=expires_at)
+    blocklist = TokenBlocklist(jti=jti, expires_at=expires_at)
     db.session.add(blocklist)
-    db.session.commit()
+
+    # Optional body refresh_token to revoke proactively
+    try:
+        data = request.get_json(force=True)
+    except Exception:
+        data = request.form or {}
+    supplied = (data.get('refresh_token') or '').strip()
+    if supplied:
+        h = RefreshToken.hash_token(supplied)
+        rt = RefreshToken.query.filter_by(token_hash=h).first()
+        if rt and rt.is_active():
+            rt.revoke()
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('logout: DB commit failed')
 
     current_app.logger.info(f"User {get_jwt_identity()} logged out, token jti {jti} blocked until {expires_at}")
 

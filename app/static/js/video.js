@@ -374,7 +374,15 @@
         if (m.description) extra.push(`<strong>Description: </strong> ${escapeHtml(m.description)}`);
         if (m.surgeons?.length) {
             const tagChips = m.surgeons
-                .map(t => `<span class="chip inline-block">${escapeHtml(t.name || t)} : ${escapeHtml(t.type || t)}</span>`)
+                .map(t => {
+                    const sid = t.id || t.surgeon_id || t.uuid || null;
+                    const label = `${escapeHtml(t.name || t)}${t.type ? ' : ' + escapeHtml(t.type) : ''}`;
+                    if (sid) {
+                        const href = `/linked-video/${encodeURIComponent(sid)}`; // alias route
+                        return `<a class="chip inline-block hover:shadow cursor-pointer no-underline" title="View linked videos" href="${href}">${label}</a>`;
+                    }
+                    return `<span class="chip inline-block">${label}</span>`;
+                })
                 .join(" ");
             extra.push(`<div><strong>Surgeons: </strong> ${tagChips}</div>`);
         }

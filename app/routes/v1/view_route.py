@@ -117,3 +117,23 @@ def privacy_page():
 @require_roles('admin','superadmin')
 def admin_unverified_page():  # injected by decorator
     return render_template('admin_unverified.html')
+
+@view_bp.route('/admin/link-surgeons')
+@jwt_required()
+@require_roles('admin','superadmin')
+def admin_link_surgeons_page():
+    return render_template('link_surgeons.html')
+
+@view_bp.route('/admin/admin-dashboard')
+@jwt_required()
+@require_roles('admin','superadmin')
+def admin_dashboard_page():
+    return render_template('admin_dashboard.html')
+
+
+@view_bp.route('/linked-video/<int:surgeon_id>')
+@jwt_required()
+def linked_videos_page_alias_surgeon(surgeon_id):
+    """Alias route so frontend can link to /linked-video/<surgeon_id>."""
+    return render_template('linked_videos.html', surgeon_id=surgeon_id, user_id=None)
+

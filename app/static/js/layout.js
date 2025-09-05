@@ -140,20 +140,68 @@
     }
 
     const safeName = escapeHtml(user.name || user.username || "User");
+    const rawUser = safeParse(localStorage.getItem('user')) || {};
+    // Normalize roles: handle forms like 'role.viewer', 'ROLE_ADMIN', etc.
+    const roles = (rawUser.roles || []).map(r => {
+      const v = String(r).toLowerCase();
+      return v.replace(/^role[._-]/,''); // strip leading 'role.' / 'role-' / 'role_'
+    });
+    const isUploader = roles.includes('uploader') || roles.includes('admin') || roles.includes('superadmin');
+    const isAdmin = roles.includes('admin') || roles.includes('superadmin');
+
+    // Grouped links for automatic divider insertion between sections
+  const groups = [
+      [ // Account
+        { href: '/settings', label: 'Settings' },
+        { href: '/change-password', label: 'Change Password' }
+      ],
+      [ // Activity
+        { href: '/history', label: 'History' },
+        { href: '/favourites', label: 'Favourites' }
+      ],
+      isUploader ? [ { href: '/upload', label: 'Upload Video' } ] : null,
+      [ // Legal
+        { href: '/privacy', label: 'Privacy' },
+        { href: '/terms', label: 'Terms' }
+      ]
+    ].filter(Boolean);
+
+    const linksHtml = groups
+      .map(g => g.map(l => `<a class="block px-3 py-2 rounded hover:bg-[color:var(--brand-50)] no-underline" href="${escapeAttr(l.href)}">${escapeHtml(l.label)}</a>`).join(''))
+      .join('<hr class="hr" />');
+
+    let adminSection = '';
+    if (isAdmin) {
+      const adminLinks = [
+        { href: '/admin/dashboard', label: 'Dashboard' },
+        { href: '/admin/unverified', label: 'Verify Users' },
+        { href: '/admin/link-surgeons', label: 'Link Surgeons' }
+      ];
+      const adminLinksHtml = adminLinks.map(l => `<a class="block px-3 py-2 rounded hover:bg-[color:var(--brand-50)] no-underline" href="${escapeAttr(l.href)}">${escapeHtml(l.label)}</a>`).join('');
+      adminSection = `
+        <hr class=\"hr\" />
+        <div class=\"mt-1\">
+          <button id=\"adminMenuToggle\" class=\"w-full flex items-center justify-between px-3 py-2 rounded hover:bg-[color:var(--brand-50)] text-sm font-semibold\" aria-expanded=\"false\" aria-controls=\"adminMenuPanel\">
+            <span>Admin</span>
+            <span id=\"adminChevron\" class=\"transition-transform text-xs\">▸</span>
+          </button>
+          <div id=\"adminMenuPanel\" class=\"hidden pt-1 border-l border-[color:var(--border)] ml-2 pl-2\" role=\"group\">${adminLinksHtml}</div>
+        </div>`;
+    }
 
     mount.innerHTML = `
       <div class="relative group">
         <button class="btn btn-ghost flex items-center gap-2" id="userBtn" aria-haspopup="menu" aria-expanded="false">
           <span class="sm:inline">${safeName}</span>
         </button>
-        <div id="userMenu" class="hidden absolute right-0 mt-2 w-56 card p-2 group-hover:block" role="menu" aria-labelledby="userBtn">
-          <div class="px-3 py-2 rounded hover:bg-[color:var(--brand-50)]">
+        <div id="userMenu" class="hidden absolute right-0 mt-2 w-60 card group-hover:block" role="menu" aria-labelledby="userBtn">
+          <a href="/profile" class="block px-3 py-2 rounded hover:bg-[color:var(--brand-50)] no-underline" role="menuitem">
             <div class="text-sm font-semibold">${safeName}</div>
-            <div class="text-xs muted">${escapeHtml(user.email || "")}</div>
-          </div>
+            <div class="text-xs muted truncate">${escapeHtml(user.email || "")}</div>
+          </a>
           <hr class="hr" />
-          <a class="block px-3 py-2 rounded hover:bg-[color:var(--brand-50)] no-underline" href="/profile">Profile</a>
-          <a class="block px-3 py-2 rounded hover:bg-[color:var(--brand-50)] no-underline" href="/settings">Settings</a>
+          ${linksHtml}
+          ${adminSection}
           <hr class="hr" />
           <button class="block w-full text-left px-3 py-2 rounded text-[color:var(--danger)] hover:bg-[color:var(--brand-50)]" id="logoutBtn">Logout</button>
         </div>
@@ -197,6 +245,26 @@
     if (logoutBtn) {
       logoutBtn.addEventListener("click", onLogoutClick);
     }
+
+    // Admin submenu toggle
+    const adminToggle = document.getElementById('adminMenuToggle');
+    const adminPanel = document.getElementById('adminMenuPanel');
+    const adminChevron = document.getElementById('adminChevron');
+    if (adminToggle && adminPanel) {
+      adminToggle.addEventListener('click', (e) => {
+        e.preventDefault();
+        const open = !adminPanel.classList.contains('hidden');
+        if (open) {
+          adminPanel.classList.add('hidden');
+          adminToggle.setAttribute('aria-expanded','false');
+          if(adminChevron) adminChevron.style.transform='rotate(0deg)';
+        } else {
+          adminPanel.classList.remove('hidden');
+          adminToggle.setAttribute('aria-expanded','true');
+          if(adminChevron) adminChevron.style.transform='rotate(90deg)';
+        }
+      });
+    }
   }
 
 
@@ -230,21 +298,67 @@
     try {
       localStorage.removeItem("token");
       localStorage.removeItem("user");
+      localStorage.removeItem("refresh_token");
     } catch { /* ignore */ }
+  }
+
+  // ------------------ Toast System ------------------
+  function showToast(message, type = 'info', timeout = 4000) {
+    const host = document.getElementById('toastHost');
+    if (!host) return;
+    const el = document.createElement('div');
+    el.className = `px-4 py-2 rounded shadow text-sm animate-fade-in pointer-events-auto bg-[color:var(--surface)] border border-[color:var(--border)] ${type === 'error' ? 'text-red-600 dark:text-red-400' : type === 'warn' ? 'text-yellow-600 dark:text-yellow-400' : 'text-[color:var(--text)]'}`;
+    el.textContent = message;
+    host.appendChild(el);
+    if (timeout > 0) setTimeout(() => { el.classList.add('opacity-0','transition'); setTimeout(()=> el.remove(), 400); }, timeout);
+  }
+
+  // Inject minimal keyframes if not present (idempotent)
+  if (!document.getElementById('__toast_style')) {
+    const style = document.createElement('style');
+    style.id = '__toast_style';
+    style.textContent = `.animate-fade-in{animation:fade-in .25s ease-out} @keyframes fade-in{from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:translateY(0)}}`;
+    document.head.appendChild(style);
   }
 
   // ------------------ Global 401 Auto-Redirect ------------------
   // Intercept fetch & XHR responses; on 401/403 clear auth + redirect to /login?next=<current>
   // Avoid infinite loops by: (a) skipping on /login routes, (b) one-time session lock.
-  function handleAuthFailure(status) {
+  async function tryRefreshToken() {
+    const refresh = localStorage.getItem('refresh_token');
+    if (!refresh) return false;
+    try {
+      const resp = await fetch('/api/v1/auth/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ refresh_token: refresh }) });
+      if (!resp.ok) return false;
+      const data = await resp.json().catch(()=>({}));
+      if (data.access_token) {
+        localStorage.setItem('token', data.access_token);
+        if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
+        showToast('Session refreshed. Continuing…','info',2500);
+        return true;
+      }
+    } catch { /* ignore */ }
+    return false;
+  }
+
+  async function handleAuthFailure(status, retryFn) {
     if (!(status === 401 || status === 403)) return;
     const path = window.location.pathname;
     if (path.startsWith('/login')) return; // already on login
-    if (sessionStorage.getItem('__auth_redirect_lock')) return; // prevent loops
-    sessionStorage.setItem('__auth_redirect_lock', '1');
+    // Attempt refresh once per navigation
+    if (!sessionStorage.getItem('__refresh_attempted')) {
+      sessionStorage.setItem('__refresh_attempted','1');
+      const ok = await tryRefreshToken();
+      if (ok && typeof retryFn === 'function') {
+        try { await retryFn(); return; } catch {/* swallow and fallback */}
+      }
+    }
+    if (sessionStorage.getItem('__auth_redirect_lock')) return;
+    sessionStorage.setItem('__auth_redirect_lock','1');
+    showToast('Session expired. Redirecting to login…','warn',3500);
     clearAuthStorage();
     const ret = encodeURIComponent(path + window.location.search);
-    try { window.location.replace(`/login?next=${ret}`); } catch { window.location.href = `/login?next=${ret}`; }
+    setTimeout(()=>{ try { window.location.replace(`/login?next=${ret}`); } catch { window.location.href = `/login?next=${ret}`; } }, 1200);
   }
 
   // Patch fetch once
@@ -252,14 +366,14 @@
     window.__FETCH_401_PATCHED = true;
     const origFetch = window.fetch;
     window.fetch = async function patchedFetch(input, init) {
+      const attempt = async () => origFetch(input, init);
       try {
-        const resp = await origFetch(input, init);
-        handleAuthFailure(resp.status);
+        let resp = await attempt();
+        if (resp.status === 401 || resp.status === 403) {
+            await handleAuthFailure(resp.status, async () => { resp = await attempt(); });
+        }
         return resp;
-      } catch (e) {
-        // network errors ignored here
-        throw e;
-      }
+      } catch (e) { throw e; }
     };
   }
 
@@ -268,8 +382,13 @@
     window.__XHR_401_PATCHED = true;
     const OrigSend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.send = function patchedSend(...args) {
-      this.addEventListener('load', () => handleAuthFailure(this.status));
-      return OrigSend.apply(this, args);
+      const xhr = this;
+      xhr.addEventListener('load', () => {
+        if (xhr.status === 401 || xhr.status === 403) {
+          handleAuthFailure(xhr.status);
+        }
+      });
+      return OrigSend.apply(xhr, args);
     };
   }
 
