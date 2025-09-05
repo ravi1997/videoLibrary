@@ -108,7 +108,6 @@ def login():
         if identifier:
             user = (
                 User.query
-                .filter_by(user_type='employee')
                 .filter(
                     (User.email == identifier) |
                     (User.username == identifier) |
@@ -351,7 +350,7 @@ def employee_lookup():
             name_raw = payload.get('name') or ""
             first, last = split_name(name_raw)
             username = name_raw or f"user_{emp_id.lower()}"
-            mobile = payload.get('mobile_number') or mobile_in
+            mobile = str(payload.get('mobile_number')) or mobile_in
             email = payload.get('email_address')
         else:
             # Creating provisional employee from provided mobile only
@@ -504,7 +503,7 @@ def create_account():
 
     # Link temp uploaded document if present
     if temp_upload_id:
-        upload_dir = current_app.config.get('UPLOAD_FOLDER', '/tmp/uploads')
+        upload_dir = os.path.join(os.getcwd(),"app","uploads","id_uploads")
         try:
             os.makedirs(upload_dir, exist_ok=True)
             # Find files starting with temp_<id>_
@@ -547,7 +546,8 @@ def upload_temp_id():
     f = request.files['file']
     if f.filename == '':
         return jsonify({'msg': 'empty filename'}), 400
-    upload_dir = current_app.config.get('UPLOAD_FOLDER', '/tmp/uploads')
+    upload_dir = os.path.join(os.getcwd(),"app","uploads" ,"id_uploads")
+    current_app.logger.info(f"Upload directory: {upload_dir}")
     os.makedirs(upload_dir, exist_ok=True)
     temp_id = uuid.uuid4().hex
     safe = secure_filename(f.filename)
@@ -663,7 +663,7 @@ def get_user_document(admin_user_id, user_id=None):  # decorator injects admin i
     target_id = user_id
     if not target_id:
         return jsonify({'msg': 'user_id missing'}), 400
-    upload_dir = current_app.config.get('UPLOAD_FOLDER', '/tmp/uploads')
+    upload_dir = os.path.join(os.getcwd(),"app","uploads","id_uploads")
     if not os.path.isdir(upload_dir):
         return jsonify({'msg': 'no documents'}), 404
     # Find first matching file

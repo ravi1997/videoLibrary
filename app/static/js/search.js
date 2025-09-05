@@ -25,6 +25,7 @@
             FILTERS: "search.filters", // stores JSON
         },
     };
+    
 
     // ------------------ State ------------------
     const urlQ = new URLSearchParams(location.search).get("q") || "";
@@ -38,7 +39,6 @@
         pageSize: CFG.PAGE_SIZE,
         totalPages: 1,
         totalCount: 0,
-
         // Filters
         filters: {
             categories: new Set(savedFilters.categories || []),  // single-select (0 or 1 item)
@@ -74,7 +74,7 @@
         dateQuick: $("#dateQuick"),
         dateFrom: $("#dateFrom"),
         dateTo: $("#dateTo"),
-        tagInput: $("#tagInput"),
+    tagInput: $("#tagInput"),
         activeTags: $("#activeTags"),
         searchTagList: $("#searchTagList"),
         clearAllFilters: $("#clearAllFilters"),
@@ -95,6 +95,7 @@
         if (dom.queryText) dom.queryText.textContent = state.q ? `"${state.q}"` : "(empty)";
 
         // Bind sorting
+        
         dom.sortBtns.forEach((btn) => {
             btn.addEventListener("click", () => {
                 const v = btn.getAttribute("data-sort");
@@ -160,6 +161,7 @@
                 persistFilters();
                 state.page = 1;
                 refresh();
+                updateActiveDurationChips();
             });
         }
 
@@ -190,6 +192,7 @@
                 state.filters.durationMax = clampNonNegInt(max);
                 persistFilters();
                 state.page = 1;
+                updateActiveDurationChips();
                 refresh();
             });
         }
@@ -207,6 +210,7 @@
                 state.filters.dateTo = to || "";
                 persistFilters();
                 state.page = 1;
+                updateActiveDateChips();
                 refresh();
             });
         }
@@ -306,8 +310,10 @@
         if (dom.dateFrom) dom.dateFrom.value = state.filters.dateFrom || "";
         if (dom.dateTo) dom.dateTo.value = state.filters.dateTo || "";
 
-        // Tags
-        renderActiveTags();
+    // Tags
+    renderActiveTags();
+    updateActiveDurationChips();
+    updateActiveDateChips();
     }
 
     function renderActiveTags() {
@@ -350,7 +356,9 @@
         if (dom.durationMax) dom.durationMax.value = "";
         if (dom.dateFrom) dom.dateFrom.value = "";
         if (dom.dateTo) dom.dateTo.value = "";
-        renderActiveTags();
+    renderActiveTags();
+    updateActiveDurationChips();
+    updateActiveDateChips();
     }
 
     // ------------------ Fetch & render ------------------
@@ -477,8 +485,8 @@
         <div class="p-3">
           <h3 class="font-semibold line-clamp-2 text-[color:var(--text)]"></h3>
           <p class="text-sm mt-1 muted line-clamp-2"></p>
-          <div class="flex items-center justify-between mt-3">
-            <div class="hidden flex items-center gap-2">
+                    <div class="flex items-center justify-between mt-3">
+                        <div class="flex items-center gap-2" style="display:none;">
               <img class="w-7 h-7 rounded-full" alt="">
               <span class="text-sm muted"></span>
             </div>
@@ -633,6 +641,29 @@
             b.classList.toggle("ring-1", active);
             b.classList.toggle("ring-[color:var(--brand-600)]", active);
             b.classList.toggle("font-semibold", active);
+            b.classList.toggle("active", active); // fallback styling
+        });
+    }
+    // Highlight duration quick chips based on current min/max
+    function updateActiveDurationChips() {
+        if (!dom.durationQuick) return;
+        const min = state.filters.durationMin || "";
+        const max = state.filters.durationMax || "";
+        dom.durationQuick.querySelectorAll('.chip').forEach(chip => {
+            const cmin = chip.getAttribute('data-min') ?? "";
+            const cmax = chip.getAttribute('data-max') ?? "";
+            chip.classList.toggle('active', String(cmin) === String(min) && String(cmax) === String(max));
+        });
+    }
+
+    // Highlight date quick chips based on derived from/to
+    function updateActiveDateChips() {
+        if (!dom.dateQuick) return;
+        dom.dateQuick.querySelectorAll('.chip').forEach(chip => {
+            const span = chip.getAttribute('data-date');
+            if (!span) { chip.classList.remove('active'); return; }
+            const { from, to } = computeDateRange(span);
+            chip.classList.toggle('active', (state.filters.dateFrom || "") === (from || "") && (state.filters.dateTo || "") === (to || ""));
         });
     }
 

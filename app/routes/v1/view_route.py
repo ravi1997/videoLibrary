@@ -1,10 +1,10 @@
 from urllib.parse import unquote
 from datetime import datetime
-from flask import Blueprint, current_app, render_template, request, jsonify
+from flask import Blueprint, current_app, render_template, request, jsonify, abort
 from app.config import Config
 from app.models.User import User
 from app.models.TokenBlocklist import TokenBlocklist
-from app.models.video import Video
+from app.models.video import Video, Category
 from app.schemas.user_schema import UserSchema
 from flask_jwt_extended import (
     create_access_token, jwt_required,
@@ -17,8 +17,23 @@ view_bp = Blueprint('view_bp', __name__)
 
 
 @view_bp.route('/<video_id>')
-def video(video_id):
-    return render_template('video.html', video_id=video_id)
+def video(video_id: str):
+    """Video detail page.
+
+    Only render if a video with the given UUID/string key exists; otherwise 404.
+    Accepts raw or URL-encoded id.
+    """
+    vid = unquote(video_id or '').strip()
+    if not vid:
+        abort(404)
+
+    # Basic sanity: UUIDs we generate are 36 chars (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+    # but don't hard fail on length; still attempt lookup.
+    video_obj = Video.query.filter_by(uuid=vid).first()
+    if not video_obj:
+        abort(404)
+
+    return render_template('video.html', video_id=vid, video=video_obj)
 
 
 @view_bp.route('/')
@@ -43,9 +58,22 @@ def login_page():
     return render_template('login.html')
 
 @view_bp.route('/category/<category_name>')
-def category_page(category_name):
-    category_name = unquote(category_name)
-    return render_template('category.html', category=category_name)
+def category_page(category_name: str):
+    """Render category page only if category exists.
+
+    Accepts either raw name or URL-encoded. Case-insensitive match.
+    Returns 404 if no such category.
+    """
+    raw = unquote(category_name or '').strip()
+    if not raw:
+        abort(404)
+
+    # Case-insensitive lookup
+    category = Category.query.filter(Category.name.ilike(raw)).first()
+    if not category:
+        abort(404)
+
+    return render_template('category.html', category=category.name)
 
 @view_bp.route('/favourites')
 def favourites_page():

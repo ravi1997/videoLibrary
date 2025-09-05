@@ -319,6 +319,42 @@ a:hover {
     font-size: .925rem;
 }
 
+/* Active / selected chip state */
+.chip.active {
+    background: var(--brand-600);
+    color: #fff;
+    border-color: var(--brand-600);
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--brand-600) 85%, transparent);
+}
+
+/* Sort button active fallback (when Tailwind ring utilities unavailable) */
+.sort-btn.active,
+.sort-btn.ring-1 {
+    background: color-mix(in oklab, var(--brand-50) 80%, transparent);
+    border: 1px solid var(--brand-600) !important;
+    border-radius: .6rem;
+    box-shadow: 0 0 0 2px var(--brand-600, #2563eb) inset;
+    font-weight: 600;
+}
+
+/* Category radio selection highlight */
+#filterCategoryList input[type=radio] {
+    /* Keep native for accessibility but minimize visual weight */
+    accent-color: var(--brand-600);
+}
+#filterCategoryList input[type=radio]:checked + span {
+    background: var(--brand-600);
+    color: #fff;
+    padding: .2rem .55rem;
+    border-radius: .625rem;
+}
+
+/* Provide a subtle hover for chips */
+.chip:not(.active):hover {
+    background: color-mix(in oklab, var(--brand-50) 85%, transparent);
+    cursor: pointer;
+}
+
 .chip .close {
     border: none;
     background: transparent;
