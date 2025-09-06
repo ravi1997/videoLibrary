@@ -25,7 +25,10 @@
     exportBtn.addEventListener('click', async ()=>{
       exportBtn.disabled = true; exportBtn.textContent='Exporting...';
       try {
-        const r = await fetch('/api/v1/super/audit/export');
+        const p = {...overviewParams};
+        delete p.last_id; delete p.limit;
+        const qs = new URLSearchParams(p).toString();
+        const r = await fetch(`/api/v1/super/audit/export${qs?('?' + qs):''}`);
         if(r.ok){
           const data = await r.json();
           const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
@@ -96,19 +99,29 @@
   const auditForm = document.getElementById('auditFilter');
   const auditTable = document.getElementById('auditTable');
   const resetBtn = document.getElementById('resetAudit');
-  async function fetchAudit(params){
-    const qs = new URLSearchParams(params).toString();
+  let overviewCursor = null;
+  let overviewParams = {limit:25};
+  async function fetchAudit(params, append=false){
+    const p = {...params};
+    if(append && overviewCursor) p.last_id = overviewCursor;
+    const qs = new URLSearchParams(p).toString();
     const r = await fetch(`/api/v1/super/audit/list?${qs}`);
     if(!r.ok) return;
     const data = await r.json();
     if(!auditTable) return;
     const tbody = auditTable.querySelector('tbody');
-    tbody.innerHTML='';
-    data.items.forEach(it=>{
+    if(!append) tbody.innerHTML='';
+    (data.items||[]).forEach(it=>{
       const tr = document.createElement('tr');
       tr.innerHTML = `<td>${it.id}</td><td>${it.event}</td><td>${it.user_id||''}</td><td>${it.target_user_id||''}</td><td>${it.created_at}</td>`;
       tbody.appendChild(tr);
     });
+    overviewCursor = data.next_cursor || null;
+    const moreBtn = document.getElementById('overviewAuditMore');
+    if(moreBtn){
+      moreBtn.disabled = !data.has_more;
+      moreBtn.style.display = data.has_more ? 'inline-block':'none';
+    }
   }
   if(auditForm){
     auditForm.addEventListener('submit', e=>{
@@ -116,14 +129,18 @@
       const fd = new FormData(auditForm);
       const params = {};
       for(const [k,v] of fd.entries()) if(v) params[k]=v;
-      fetchAudit(params);
+      overviewParams = params; overviewCursor = null; fetchAudit(overviewParams, false);
     });
   }
   if(resetBtn){
     resetBtn.addEventListener('click', ()=>{
       auditForm.reset();
-      fetchAudit({limit:50});
+      overviewParams = {limit:25}; overviewCursor = null; fetchAudit(overviewParams,false);
     });
+  }
+  const moreBtn = document.getElementById('overviewAuditMore');
+  if(moreBtn){
+    moreBtn.addEventListener('click', ()=>{ if(overviewCursor) fetchAudit(overviewParams,true); });
   }
 
 })();

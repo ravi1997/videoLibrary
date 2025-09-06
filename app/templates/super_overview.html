@@ -155,6 +155,14 @@
         <label class="block">Limit</label>
         <input name="limit" type="number" value="50" class="input input-xs" style="width:70px"/>
       </div>
+      <div>
+        <label class="block">Start Date</label>
+        <input name="start_date" type="date" class="input input-xs" />
+      </div>
+      <div>
+        <label class="block">End Date</label>
+        <input name="end_date" type="date" class="input input-xs" />
+      </div>
       <button class="btn btn-ghost text-xs" type="submit">Apply</button>
       <button class="btn btn-ghost text-xs" type="button" id="resetAudit">Reset</button>
     </form>
@@ -175,6 +183,7 @@
     <div class="flex gap-2">
       <button id="exportAudit" class="btn btn-ghost text-xs">Export (JSON)</button>
       <a id="downloadLink" class="hidden"></a>
+  <button id="overviewAuditMore" class="btn btn-ghost text-xs" style="display:none">More</button>
     </div>
     <div class="mt-4 grid md:grid-cols-3 gap-4 text-xs">
       <div>

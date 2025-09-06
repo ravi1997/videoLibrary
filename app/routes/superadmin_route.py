@@ -10,6 +10,7 @@ from app.models.User import UserRole
 from app.models.video import Favourite
 from app.models.enumerations import Role
 from app.utils.decorator import require_roles
+from app.utils.audit_helpers import bulk_user_mutation
 from app.security_utils import audit_log
 
 # Only API blueprint (page route moved to view_route view_bp)
@@ -220,9 +221,47 @@ def toggle_maintenance():
 @require_roles(Role.SUPERADMIN.value)
 def export_audit():
     from app.models import AuditLog
-    qs = AuditLog.query.order_by(AuditLog.id.desc()).limit(500)
-    rows = [a.to_dict() for a in qs]
-    return jsonify({'items': rows, 'count': len(rows)})
+    event = (request.args.get('event') or '').strip()
+    user_id = (request.args.get('user_id') or '').strip()
+    target_id = (request.args.get('target_user_id') or '').strip()
+    limit = min(2000, max(1, int(request.args.get('limit', 500) or 500)))
+    start_date_raw = (request.args.get('start_date') or '').strip()
+    end_date_raw = (request.args.get('end_date') or '').strip()
+    start_ts = request.args.get('start_ts')
+    end_ts = request.args.get('end_ts')
+    start_dt = None
+    end_dt = None
+    if start_ts and start_ts.isdigit():
+        start_dt = datetime.fromtimestamp(int(start_ts), tz=timezone.utc)
+    elif start_date_raw:
+        try:
+            start_dt = datetime.fromisoformat(start_date_raw).replace(tzinfo=timezone.utc)
+        except Exception:
+            return jsonify({'error':'invalid_start_date'}), 400
+    if end_ts and end_ts.isdigit():
+        end_dt = datetime.fromtimestamp(int(end_ts), tz=timezone.utc)
+    elif end_date_raw:
+        try:
+            end_dt = (datetime.fromisoformat(end_date_raw).replace(tzinfo=timezone.utc) + timedelta(days=1))
+        except Exception:
+            return jsonify({'error':'invalid_end_date'}), 400
+    if start_dt and end_dt and end_dt <= start_dt:
+        return jsonify({'error':'end_before_start'}), 400
+    if start_dt and end_dt and (end_dt - start_dt) > timedelta(days=62):
+        return jsonify({'error': 'range_too_large', 'max_days': 62}), 400
+    q = AuditLog.query
+    if event:
+        q = q.filter(AuditLog.event == event)
+    if user_id:
+        q = q.filter(AuditLog.user_id == user_id)
+    if target_id:
+        q = q.filter(AuditLog.target_user_id == target_id)
+    if start_dt:
+        q = q.filter(AuditLog.created_at >= start_dt)
+    if end_dt:
+        q = q.filter(AuditLog.created_at < end_dt)
+    rows = [a.to_dict() for a in q.order_by(AuditLog.id.desc()).limit(limit).all()]
+    return jsonify({'items': rows, 'count': len(rows), 'limit': limit})
 
 @super_api_bp.get('/audit/list')
 @jwt_required()
@@ -233,7 +272,13 @@ def list_audit():
     user_id = (request.args.get('user_id') or '').strip()
     target_id = (request.args.get('target_user_id') or '').strip()
     limit = min(200, max(1, int(request.args.get('limit', 50) or 50)))
-    offset = max(0, int(request.args.get('offset', 0) or 0))
+    order = (request.args.get('order') or 'desc').lower()
+    # Cursor param: return records with id < last_id (descending order)
+    last_id = request.args.get('last_id')
+    try:
+        last_id_val = int(last_id) if last_id else None
+    except ValueError:
+        last_id_val = None
     q = AuditLog.query
     if event:
         q = q.filter(AuditLog.event == event)
@@ -241,9 +286,64 @@ def list_audit():
         q = q.filter(AuditLog.user_id == user_id)
     if target_id:
         q = q.filter(AuditLog.target_user_id == target_id)
-    total = q.count()
-    items = q.order_by(AuditLog.id.desc()).offset(offset).limit(limit).all()
-    return jsonify({'items': [a.to_dict() for a in items], 'total': total, 'limit': limit, 'offset': offset})
+    if last_id_val:
+        q = q.filter(AuditLog.id < last_id_val)
+    # Date range filtering (YYYY-MM-DD) or epoch seconds (start_ts/end_ts)
+    start_date_raw = (request.args.get('start_date') or '').strip()
+    end_date_raw = (request.args.get('end_date') or '').strip()
+    start_ts = request.args.get('start_ts')
+    end_ts = request.args.get('end_ts')
+    start_dt = None
+    end_dt = None
+    # Parse start
+    if start_ts and start_ts.isdigit():
+        start_dt = datetime.fromtimestamp(int(start_ts), tz=timezone.utc)
+    elif start_date_raw:
+        try:
+            start_dt = datetime.fromisoformat(start_date_raw).replace(tzinfo=timezone.utc)
+        except Exception:
+            return jsonify({'error': 'invalid_start_date'}), 400
+    # Parse end (exclusive upper bound via +1 day for date format)
+    if end_ts and end_ts.isdigit():
+        end_dt = datetime.fromtimestamp(int(end_ts), tz=timezone.utc)
+    elif end_date_raw:
+        try:
+            end_dt = (datetime.fromisoformat(end_date_raw).replace(tzinfo=timezone.utc) + timedelta(days=1))
+        except Exception:
+            return jsonify({'error': 'invalid_end_date'}), 400
+    if start_dt and end_dt and end_dt <= start_dt:
+        return jsonify({'error': 'end_before_start'}), 400
+    # Enforce max range (62 days) if both provided
+    if start_dt and end_dt and (end_dt - start_dt) > timedelta(days=62):
+        return jsonify({'error': 'range_too_large', 'max_days': 62}), 400
+    if start_dt:
+        q = q.filter(AuditLog.created_at >= start_dt)
+    if end_dt:
+        q = q.filter(AuditLog.created_at < end_dt)
+    # Ordering
+    if order not in ('asc','desc'):
+        order = 'desc'
+    ordering = AuditLog.id.desc() if order == 'desc' else AuditLog.id.asc()
+    # If asc order and cursor provided, logic should adjust comparison
+    if last_id_val and order == 'asc':
+        q = q.filter(AuditLog.id > last_id_val)
+    items = q.order_by(ordering).limit(limit+1).all()
+    has_more = len(items) > limit
+    if has_more:
+        items = items[:limit]
+    next_cursor = None
+    if items:
+        if order == 'desc':
+            next_cursor = items[-1].id if has_more else None
+        else:  # asc
+            next_cursor = items[-1].id if has_more else None
+    return jsonify({
+        'items': [a.to_dict() for a in items],
+        'limit': limit,
+        'next_cursor': next_cursor,
+        'has_more': has_more,
+        'order': order
+    })
 
 # (Page route now lives in view_route)
 
@@ -397,20 +497,16 @@ def super_bulk_set_roles():
     roles_in = data.get('roles') or []
     valid_roles = {r.value for r in Role}
     clean_roles = [r for r in [ (ri or '').strip().lower() for ri in roles_in ] if r in valid_roles]
-    updated = 0
     users = User.query.filter(User.id.in_(ids)).all() if ids else []
-    for u in users:
+    def mutate(u):
         u.role_associations.clear()
         for rv in clean_roles:
             u.role_associations.append(UserRole(user_id=u.id, role=Role(rv)))
-        updated += 1
-    try:
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        return jsonify({'error': 'persist_failed'}), 500
-    audit_log('bulk_roles_update', detail=f"count={updated};roles={','.join(clean_roles)}")
-    return jsonify({'status': 'ok', 'updated': updated})
+    res = bulk_user_mutation(users, mutate, 'bulk_roles_update', detail_fmt=f"count={{count}};roles={','.join(clean_roles)}")
+    if 'error' in res:
+        return jsonify(res), 500
+    res['updated'] = res.pop('count', 0)
+    return jsonify(res)
 
 @super_api_bp.post('/users/bulk/lock')
 @jwt_required()
@@ -419,15 +515,11 @@ def super_bulk_lock():
     data = request.get_json(force=True, silent=True) or {}
     ids = data.get('user_ids') or []
     users = User.query.filter(User.id.in_(ids)).all() if ids else []
-    for u in users:
-        u.lock_account()
-    try:
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        return jsonify({'error': 'persist_failed'}), 500
-    audit_log('bulk_user_lock', detail=f"count={len(users)}")
-    return jsonify({'status': 'ok', 'locked': len(users)})
+    res = bulk_user_mutation(users, lambda u: u.lock_account(), 'bulk_user_lock', detail_fmt='count={count}')
+    if 'error' in res:
+        return jsonify(res), 500
+    res['locked'] = res.pop('count', 0)
+    return jsonify(res)
 
 @super_api_bp.post('/users/bulk/unlock')
 @jwt_required()
@@ -436,15 +528,11 @@ def super_bulk_unlock():
     data = request.get_json(force=True, silent=True) or {}
     ids = data.get('user_ids') or []
     users = User.query.filter(User.id.in_(ids)).all() if ids else []
-    for u in users:
-        u.unlock_account()
-    try:
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        return jsonify({'error': 'persist_failed'}), 500
-    audit_log('bulk_user_unlock', detail=f"count={len(users)}")
-    return jsonify({'status': 'ok', 'unlocked': len(users)})
+    res = bulk_user_mutation(users, lambda u: u.unlock_account(), 'bulk_user_unlock', detail_fmt='count={count}')
+    if 'error' in res:
+        return jsonify(res), 500
+    res['unlocked'] = res.pop('count', 0)
+    return jsonify(res)
 
 @super_api_bp.post('/users/bulk/activate')
 @jwt_required()
@@ -453,15 +541,11 @@ def super_bulk_activate():
     data = request.get_json(force=True, silent=True) or {}
     ids = data.get('user_ids') or []
     users = User.query.filter(User.id.in_(ids)).all() if ids else []
-    for u in users:
-        u.is_active = True
-    try:
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        return jsonify({'error': 'persist_failed'}), 500
-    audit_log('bulk_user_activate', detail=f"count={len(users)}")
-    return jsonify({'status': 'ok', 'activated': len(users)})
+    res = bulk_user_mutation(users, lambda u: setattr(u, 'is_active', True), 'bulk_user_activate', detail_fmt='count={count}')
+    if 'error' in res:
+        return jsonify(res), 500
+    res['activated'] = res.pop('count', 0)
+    return jsonify(res)
 
 @super_api_bp.post('/users/bulk/deactivate')
 @jwt_required()
@@ -470,12 +554,8 @@ def super_bulk_deactivate():
     data = request.get_json(force=True, silent=True) or {}
     ids = data.get('user_ids') or []
     users = User.query.filter(User.id.in_(ids)).all() if ids else []
-    for u in users:
-        u.is_active = False
-    try:
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        return jsonify({'error': 'persist_failed'}), 500
-    audit_log('bulk_user_deactivate', detail=f"count={len(users)}")
-    return jsonify({'status': 'ok', 'deactivated': len(users)})
+    res = bulk_user_mutation(users, lambda u: setattr(u, 'is_active', False), 'bulk_user_deactivate', detail_fmt='count={count}')
+    if 'error' in res:
+        return jsonify(res), 500
+    res['deactivated'] = res.pop('count', 0)
+    return jsonify(res)

@@ -24,6 +24,14 @@
         <label class="block">Limit</label>
         <input name="limit" type="number" value="50" class="input input-xs" style="width:70px" />
       </div>
+      <div>
+        <label class="block">Start Date</label>
+        <input name="start_date" type="date" class="input input-xs" />
+      </div>
+      <div>
+        <label class="block">End Date</label>
+        <input name="end_date" type="date" class="input input-xs" />
+      </div>
       <button class="btn btn-ghost text-xs" type="submit">Apply</button>
       <button class="btn btn-ghost text-xs" type="button" id="resetAudit">Reset</button>
       <button class="btn btn-ghost text-xs" type="button" id="exportAudit">Export (JSON)</button>
@@ -37,6 +45,9 @@
         {% endfor %}
         </tbody>
       </table>
+    </div>
+    <div class="mt-2">
+      <button id="loadMoreAudit" class="btn btn-ghost text-xs" style="display:none">Load More</button>
     </div>
   </div>
 

@@ -8,12 +8,15 @@ from app.models.User import User, UserRole
 from app.models.TokenBlocklist import TokenBlocklist
 from app.models.enumerations import Role
 from app.schemas.user_schema import UserSchema
+from app.schemas.login_schema import LoginSchema
 from flask_jwt_extended import (
-    create_access_token, get_jwt_identity, jwt_required,
+    get_jwt_identity, jwt_required,
     get_jwt, set_access_cookies, unset_jwt_cookies
 )
+from app.utils.auth_tokens import issue_access_token
 from app.utils.decorator import require_roles
 from app.security_utils import rate_limit, ip_and_path_key, ip_key, audit_log
+from app.utils.audit_helpers import log_login_failed
 from app.extensions import db
 from app.models.RefreshToken import RefreshToken
 from werkzeug.utils import secure_filename
@@ -26,6 +29,7 @@ from app.utils.services.sms import send_sms
 
 auth_bp = Blueprint('auth_bp', __name__)
 user_schema = UserSchema()
+login_schema = LoginSchema()
 ADMIN_ROLE = Config.ADMIN_ROLE
 
 
@@ -99,16 +103,20 @@ def login():
         current_app.logger.warning(
             f"Failed to parse JSON data, falling back to form data: {data}, error: {str(e)}")
 
+    try:
+        clean = login_schema.load(data)
+    except Exception as e:
+        return _htmx_or_json_error(str(e), 400)
     identifier_fields = ['email', 'username', 'employee_id']
-    password = data.get('password')
-    mobile = data.get('mobile')
-    otp = data.get('otp')
+    password = (clean.get('password') or '').strip() or None
+    mobile = (clean.get('mobile') or '').strip() or None
+    otp = (clean.get('otp') or '').strip() or None
     user = None
 
     # --- EMPLOYEE LOGIN ---
     if password:
-        identifier = next((data.get(field) for field in identifier_fields if data.get(
-            field)), None) or data.get('identifier')
+        identifier = next((clean.get(field) for field in identifier_fields if clean.get(
+            field)), None) or clean.get('identifier')
         current_app.logger.info(
             f"Employee login attempt with identifier: {identifier}")
         if identifier:
@@ -124,16 +132,16 @@ def login():
             if not user:
                 current_app.logger.warning(
                     f"Login failed: No user found for identifier {identifier}")
-                audit_log('login_failed', detail='user_not_found', target_user_id=None)
+                log_login_failed('user_not_found')
                 return _htmx_or_json_error("Invalid credentials", 401)
             if not user.is_verified:
                 current_app.logger.warning(f"Login failed: user {identifier} not verified by admin")
-                audit_log('login_failed', target_user_id=user.id, detail='not_verified')
+                log_login_failed('not_verified', target_user_id=user.id)
                 return _htmx_or_json_error("Account pending verification", 403)
             if not user.check_password(password):
                 current_app.logger.warning(
                     f"Login failed: Incorrect password for user {identifier}")
-                audit_log('login_failed', target_user_id=user.id, detail='bad_password')
+                log_login_failed('bad_password', target_user_id=user.id)
                 return _htmx_or_json_error("Invalid credentials", 401)
             current_app.logger.info(
                 f"Login successful for employee user {identifier}")
@@ -145,21 +153,21 @@ def login():
         if not user:
             current_app.logger.warning(
                 f"Login failed: No user found for mobile {mobile}")
-            audit_log('login_failed', detail='otp_user_not_found')
+            log_login_failed('otp_user_not_found')
             return _htmx_or_json_error("Invalid OTP", 401)
         if not user.verify_otp(otp):
             current_app.logger.warning(
                 f"Login failed: Invalid OTP for mobile {mobile}")
-            audit_log('login_failed', target_user_id=user.id if user else None, detail='otp_invalid')
+            log_login_failed('otp_invalid', target_user_id=user.id if user else None)
             return _htmx_or_json_error("Invalid OTP", 401)
         if not user.is_verified:
             current_app.logger.warning(f"OTP login failed: user with mobile {mobile} not verified by admin")
-            audit_log('login_failed', target_user_id=user.id, detail='otp_not_verified')
+            log_login_failed('otp_not_verified', target_user_id=user.id)
             return _htmx_or_json_error("Account pending verification", 403)
         if user.user_type == 'general' and password:
             current_app.logger.warning(
                 f"General user attempted password login for mobile {mobile}")
-            audit_log('login_failed', target_user_id=user.id, detail='general_used_password_flow')
+            log_login_failed('general_used_password_flow', target_user_id=user.id)
             return _htmx_or_json_error("General users must log in with OTP only", 403)
         current_app.logger.info(f"OTP login successful for mobile {mobile}")
 
@@ -168,13 +176,7 @@ def login():
         return _htmx_or_json_error("Missing credentials", 400)
 
     # --- Issue JWT ---
-    access_token = create_access_token(
-        identity=str(user.id),  # ✅ simple and safe
-        additional_claims={
-            "roles": [ur.role.value for ur in user.role_associations],
-            "pwd_change": bool(getattr(user, 'require_password_change', False))
-        }
-    )
+    access_token = issue_access_token(user)
     # Issue refresh token (persisted, hashed)
     refresh_ttl = timedelta(minutes=Config.REFRESH_TOKEN_EXPIRES_MINUTES)
     try:
@@ -261,12 +263,7 @@ def refresh_token():
         audit_log('refresh_failed', detail='user_inactive', target_user_id=user.id if user else None)
         return jsonify({'msg': 'user inactive'}), 401
 
-    access_token = create_access_token(
-        identity=str(user.id),
-        additional_claims={
-            'roles': [ur.role.value for ur in user.role_associations]
-        }
-    )
+    access_token = issue_access_token(user)
     refresh_ttl = timedelta(minutes=Config.REFRESH_TOKEN_EXPIRES_MINUTES)
     new_rt, new_plain = RefreshToken.create_for_user(user.id, refresh_ttl, request.headers.get('User-Agent'), request.remote_addr)
     rt.revoke(replaced_by=new_rt)

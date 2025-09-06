@@ -341,3 +341,63 @@ Specify license (MIT/Apache/Proprietary). Currently unspecified.
 ---
 
 Happy building! Open issues for enhancement requests.
+
+---
+
+## 22. Superadmin Audit API
+Two related endpoints provide cursor & filterable access to audit logs.
+
+### GET /api/v1/super/audit/list
+Returns a page of audit events using cursor-based pagination.
+
+Query Parameters:
+- event: exact event name filter (optional)
+- user_id: actor user id (optional)
+- target_user_id: target user id (optional)
+- start_date / end_date: ISO date (YYYY-MM-DD). end_date is exclusive internally (+1 day). Mutually usable with epoch params.
+- start_ts / end_ts: Unix epoch seconds (overrides date forms if supplied)
+- last_id: cursor (id of last item from previous page). For order=desc returns earlier (smaller) ids; for order=asc returns newer (larger) ids.
+- limit: results per page (1–200; default 50)
+- order: desc (default) or asc
+
+Response:
+```
+{
+	"items": [ { id, event, user_id, target_user_id, detail, created_at, ... }, ... ],
+	"limit": 50,
+	"next_cursor": 1234,    // omit/null if no more
+	"has_more": true,
+	"order": "desc"
+}
+```
+
+Errors:
+- 400 invalid_start_date | invalid_end_date | end_before_start | range_too_large
+
+Range Limits:
+- Maximum span when both start & end provided: 62 days.
+
+### GET /api/v1/super/audit/export
+Filtered export (JSON) of recent audit events.
+
+Query Parameters (subset mirrors list):
+- event, user_id, target_user_id
+- start_date / end_date or start_ts / end_ts (same parsing & validation rules)
+- limit (1–2000; default 500)
+
+Notes:
+- Always returns newest first (descending id) currently.
+- Use list endpoint for pagination; export is for point-in-time snapshots / offline analysis.
+
+Example:
+```
+/api/v1/super/audit/list?event=login_failed&start_date=2025-09-01&end_date=2025-09-06&limit=100
+```
+
+Frontend Behavior:
+- Cursor stored as next_cursor; client sends last_id=next_cursor for subsequent pages.
+- When switching filters, reset cursor.
+
+Security:
+- Both endpoints require SUPERADMIN role.
+

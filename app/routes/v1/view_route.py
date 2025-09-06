@@ -157,7 +157,8 @@ def superadmin_overview_page():
     force_fallback = request.args.get('fallback') == '1'
     if not force_fallback:
         try:
-            return redirect(url_for('super_bp.super_overview'))
+            # Updated endpoint to existing canonical view_bp route
+            return redirect(url_for('view_bp.super_overview_full'))
         except BuildError:
             pass  # proceed to lightweight fallback
 
