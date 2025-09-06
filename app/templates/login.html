@@ -172,6 +172,17 @@
         
             <!-- Form (keeps your hooks) -->
             <form id="loginForm" class="flex flex-col gap-5" data-js="login-form">
+                <fieldset class="flex items-center gap-6 text-sm">
+                    <legend class="sr-only">Login method</legend>
+                    <label class="inline-flex items-center gap-2">
+                        <input type="radio" name="loginMode" value="password" checked />
+                        <span>Password</span>
+                    </label>
+                    <label class="inline-flex items-center gap-2">
+                        <input type="radio" name="loginMode" value="otp" />
+                        <span>Mobile + OTP</span>
+                    </label>
+                </fieldset>
                 <!-- Username -->
                 <div class="relative">
                     <input id="username" name="username" type="text" inputmode="email" class="peer w-full pl-10 pr-3 pt-4 pb-2
@@ -194,7 +205,7 @@
         
         
                 <!-- Password -->
-                <div class="relative">
+                <div class="relative" id="passwordSection">
                     <input id="password" name="password" type="password" class="peer w-full pl-10 pr-3 pt-4 pb-2
                                 text-[rgb(var(--text)_/_var(--tw-text-opacity))]
                                 bg-[color:var(--surface)] dark:bg-[color:var(--surface)]
@@ -214,6 +225,37 @@
                         aria-pressed="false">Show</button>
                 </div>
         
+                <!-- OTP Section -->
+                <div id="otpSection" class="hidden space-y-4">
+                    <div class="relative">
+                        <input id="mobile" name="mobile" type="tel" class="peer w-full pl-10 pr-3 pt-4 pb-2
+                                    text-[rgb(var(--text)_/_var(--tw-text-opacity))]
+                                    bg-[color:var(--surface)] dark:bg-[color:var(--surface)]
+                                    placeholder:opacity-60
+                                    shadow-sm border border-[color:var(--border)] rounded-lg" placeholder=" "
+                            autocomplete="tel" />
+                        <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-60">📱</span>
+                        <label for="mobile" class="fl-label pointer-events-none absolute left-11 top-1/2 -translate-y-1/2
+                                text-sm muted
+                                peer-placeholder-shown:top-1/2 peer-placeholder-shown:text-sm
+                                peer-focus:top-2 peer-focus:text-xs peer-focus:text-[color:var(--brand-700)]
+                                peer-[:not(:placeholder-shown)]:top-2 peer-[:not(:placeholder-shown)]:text-xs">Mobile</label>
+                    </div>
+                    <div class="relative">
+                        <input id="otp" name="otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" class="peer w-full pl-10 pr-3 pt-4 pb-2
+                                    text-[rgb(var(--text)_/_var(--tw-text-opacity))]
+                                    bg-[color:var(--surface)] dark:bg-[color:var(--surface)]
+                                    placeholder:opacity-60
+                                    shadow-sm border border-[color:var(--border)] rounded-lg" placeholder=" " />
+                        <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-60">🔢</span>
+                        <label for="otp" class="fl-label pointer-events-none absolute left-11 top-1/2 -translate-y-1/2
+                                text-sm muted
+                                peer-placeholder-shown:top-1/2 peer-placeholder-shown:text-sm
+                                peer-focus:top-2 peer-focus:text-xs peer-focus:text-[color:var(--brand-700)]
+                                peer-[:not(:placeholder-shown)]:top-2 peer-[:not(:placeholder-shown)]:text-xs">OTP</label>
+                    </div>
+                </div>
+
                 <!-- Options -->
                 <div class="flex items-center justify-between -mt-1">
                     <label class="inline-flex items-center gap-2 text-sm">

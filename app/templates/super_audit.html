@@ -32,10 +32,18 @@
         <label class="block">End Date</label>
         <input name="end_date" type="date" class="input input-xs" />
       </div>
+      <div>
+        <label class="block">Order</label>
+        <select name="order" class="input input-xs">
+          <option value="desc" selected>Newest</option>
+          <option value="asc">Oldest</option>
+        </select>
+      </div>
       <button class="btn btn-ghost text-xs" type="submit">Apply</button>
       <button class="btn btn-ghost text-xs" type="button" id="resetAudit">Reset</button>
       <button class="btn btn-ghost text-xs" type="button" id="exportAudit">Export (JSON)</button>
     </form>
+    <div id="auditSummary" class="text-2xs muted"></div>
     <div class="overflow-auto" style="max-height:480px;">
       <table class="table text-xs" id="auditTable">
         <thead><tr><th>ID</th><th>Event</th><th>User</th><th>Target</th><th>Detail</th><th>Time</th></tr></thead>
@@ -48,6 +56,7 @@
     </div>
     <div class="mt-2">
       <button id="loadMoreAudit" class="btn btn-ghost text-xs" style="display:none">Load More</button>
+  <span id="auditEnd" class="text-2xs muted" style="display:none">No more results</span>
     </div>
   </div>
 

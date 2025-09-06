@@ -147,6 +147,21 @@
         <label class="block">User ID</label>
         <input name="user_id" class="input input-xs" placeholder="actor id"/>
       </div>
+        <div>
+          <label class="block">Start Date</label>
+          <input name="start_date" type="date" class="input input-xs" />
+        </div>
+        <div>
+          <label class="block">End Date</label>
+          <input name="end_date" type="date" class="input input-xs" />
+        </div>
+        <div>
+          <label class="block">Order</label>
+          <select name="order" class="input input-xs">
+            <option value="desc" selected>Newest</option>
+            <option value="asc">Oldest</option>
+          </select>
+        </div>
       <div>
         <label class="block">Target User</label>
         <input name="target_user_id" class="input input-xs" placeholder="target id"/>
@@ -164,6 +179,7 @@
         <input name="end_date" type="date" class="input input-xs" />
       </div>
       <button class="btn btn-ghost text-xs" type="submit">Apply</button>
+      <div id="overviewAuditSummary" class="text-2xs muted"></div>
       <button class="btn btn-ghost text-xs" type="button" id="resetAudit">Reset</button>
     </form>
     {% if audit_logs %}
@@ -184,6 +200,7 @@
       <button id="exportAudit" class="btn btn-ghost text-xs">Export (JSON)</button>
       <a id="downloadLink" class="hidden"></a>
   <button id="overviewAuditMore" class="btn btn-ghost text-xs" style="display:none">More</button>
+  <span id="overviewAuditEnd" class="text-2xs muted" style="display:none">End</span>
     </div>
     <div class="mt-4 grid md:grid-cols-3 gap-4 text-xs">
       <div>

@@ -99,9 +99,13 @@
   const auditForm = document.getElementById('auditFilter');
   const auditTable = document.getElementById('auditTable');
   const resetBtn = document.getElementById('resetAudit');
+  const summaryNode = document.getElementById('overviewAuditSummary');
+  const endNode = document.getElementById('overviewAuditEnd');
   let overviewCursor = null;
   let overviewParams = {limit:25};
+  let loadingAudit = false;
   async function fetchAudit(params, append=false){
+    if(loadingAudit) return; loadingAudit = true;
     const p = {...params};
     if(append && overviewCursor) p.last_id = overviewCursor;
     const qs = new URLSearchParams(p).toString();
@@ -122,13 +126,19 @@
       moreBtn.disabled = !data.has_more;
       moreBtn.style.display = data.has_more ? 'inline-block':'none';
     }
+    if(endNode){ endNode.style.display = data.has_more ? 'none':'inline'; }
+    if(summaryNode){
+      const totalShown = (auditTable.querySelectorAll('tbody tr')||[]).length;
+      summaryNode.textContent = `${totalShown} row(s) shown${data.order?` | order=${data.order}`:''}`;
+    }
+    loadingAudit = false;
   }
   if(auditForm){
     auditForm.addEventListener('submit', e=>{
       e.preventDefault();
       const fd = new FormData(auditForm);
-      const params = {};
-      for(const [k,v] of fd.entries()) if(v) params[k]=v;
+  const params = {};
+  for(const [k,v] of fd.entries()) if(v) params[k]=v;
       overviewParams = params; overviewCursor = null; fetchAudit(overviewParams, false);
     });
   }

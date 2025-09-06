@@ -11,7 +11,7 @@ from app.routes.v1.auth_route import auth_bp
 from app.routes.v1.view_route import view_bp
 from app.routes.v1.user_route import user_bp
 from app.routes.v1.video_route import video_bp
-from app.routes.v1.superadmin_route import super_api_bp  # local import to avoid cycles
+from app.routes.superadmin_route import super_api_bp  # consolidated (legacy v1 removed)
 from app.routes.v1.admin_route import admin_api_bp
 
 def register_blueprints(app):

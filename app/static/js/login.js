@@ -6,11 +6,25 @@
 async function login() {
     const username = document.getElementById("username")?.value.trim();
     const password = document.getElementById("password")?.value.trim();
+    const mobile = document.getElementById("mobile")?.value.trim();
+    const otp = document.getElementById("otp")?.value.trim();
+    const mode = document.querySelector('input[name="loginMode"]:checked')?.value || 'password';
     const errorBox = document.getElementById("errorMsg");
 
-    if (!username || !password) {
-        showError("Please enter both username and password.");
-        return;
+    // Build payload according to chosen mode
+    let payload = {};
+    if (mode === 'password') {
+        if (!username || !password) {
+            showError("Enter username/email and password.");
+            return;
+        }
+        payload = { identifier: username, password };
+    } else { // otp mode
+        if (!mobile || !otp) {
+            showError("Enter mobile and OTP.");
+            return;
+        }
+        payload = { mobile, otp };
     }
 
     try {
@@ -18,7 +32,7 @@ async function login() {
         const res = await fetch("/api/v1/auth/login", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ identifier: username, password }),
+            body: JSON.stringify(payload),
         });
 
         const data = await res.json();
@@ -73,7 +87,7 @@ async function login() {
             })
         );
 
-        console.log("✅ Logged in as:", user.username);
+    console.log("✅ Logged in as:", user.username);
 
     // 5. Final redirect (normal or forced password change)
     window.location.href = redirectTo;
@@ -97,6 +111,25 @@ document.addEventListener("DOMContentLoaded", () => {
             e.preventDefault();
             login();
         });
+    }
+
+    // Toggle OTP vs password UI if elements exist
+    const modeRadios = document.querySelectorAll('input[name="loginMode"]');
+    const passwordSection = document.getElementById('passwordSection');
+    const otpSection = document.getElementById('otpSection');
+    if (modeRadios.length && passwordSection && otpSection) {
+        const syncMode = () => {
+            const current = document.querySelector('input[name="loginMode"]:checked')?.value;
+            if (current === 'otp') {
+                passwordSection.classList.add('hidden');
+                otpSection.classList.remove('hidden');
+            } else {
+                otpSection.classList.add('hidden');
+                passwordSection.classList.remove('hidden');
+            }
+        };
+        modeRadios.forEach(r => r.addEventListener('change', syncMode));
+        syncMode();
     }
 
     const pwd = document.getElementById("password");

@@ -199,6 +199,42 @@ def build_super_overview_context():
         'maintenance_reason': maintenance_reason
     }
 
+@super_api_bp.get('/users/<user_id>/activity')
+@jwt_required()
+@require_roles(Role.SUPERADMIN.value)
+def user_activity(user_id):
+    """Return recent security + activity footprint for a specific user.
+
+    Consolidated here from legacy v1.superadmin_route during endpoint
+    unification (cursor pagination + filtered export now the single source).
+    """
+    from app.models import AuditLog, Video, VideoViewEvent
+    # Basic user
+    user = User.query.filter_by(id=user_id).first()
+    if not user:
+        return jsonify({'error':'not_found'}), 404
+    # Login/security events: last 50 relevant audit logs
+    login_events = AuditLog.query.filter(
+        AuditLog.user_id == str(user.id), AuditLog.event.in_(['login_failed','login_success','user_unlocked','user_locked'])
+    ).order_by(AuditLog.id.desc()).limit(50).all()
+    security_events = AuditLog.query.filter(
+        AuditLog.user_id == str(user.id), AuditLog.event.notin_(['login_failed','login_success'])
+    ).order_by(AuditLog.id.desc()).limit(50).all()
+    # Upload history: last 50 videos by user
+    uploads = Video.query.filter_by(user_id=user.id).order_by(Video.created_at.desc()).limit(50).all()
+    # View history: last 50 view events joined with video title
+    view_rows = db.session.query(VideoViewEvent, Video.title).join(Video, Video.uuid == VideoViewEvent.video_id). \
+        filter(VideoViewEvent.user_id == user.id).order_by(VideoViewEvent.id.desc()).limit(50).all()
+    views = [ {'video_id': v.video_id, 'created_at': e.created_at.isoformat(), 'title': t} for e,t in view_rows for v in [e] ]
+    audit_log('super_user_activity_view', target_user_id=user_id)
+    return jsonify({
+        'user': user.to_dict(),
+        'logins': [e.to_dict() for e in login_events],
+        'uploads': [ {'uuid': v.uuid, 'title': v.title, 'created_at': v.created_at.isoformat() if v.created_at else None } for v in uploads ],
+        'views': views,
+        'security_events': [e.to_dict() for e in security_events],
+    })
+
 @super_api_bp.post('/maintenance')
 @jwt_required()
 @require_roles(Role.SUPERADMIN.value)
