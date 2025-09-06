@@ -175,6 +175,8 @@ The `setup_env.sh` script creates `.env` with secrets if missing.
 * Claims include `roles`; decorator `@require_roles` enforces RBAC.
 * All video endpoints: JWT required (including HLS). If you need public playback, remove decorators from HLS routes.
 * Account lockouts & password expiration handled in `User` model.
+* Case-insensitive login for email / username / employee_id (normalized to lowercase before matching) to reduce user friction.
+* Dual-mode login: password or mobile+OTP. OTP flow rate-limited (see below) and requires prior OTP generation.
 
 ### Password Policy
 Regex (in `security_utils.py`): at least 8 chars, upper, lower, digit, special char.
@@ -192,6 +194,15 @@ Decorator form:
 ```
 * Memory store (dev) or Redis (prod) using `REDIS_URL`.
 * Returns 429 with JSON including `retry_after`.
+
+Programmatic helper (fine-grained limiting inside a function):
+```python
+from app.security_utils import allow_action
+allowed, retry_after = allow_action(f"otp:{mobile}", limit=6, window_sec=300)
+if not allowed:
+	return jsonify({"msg": "Too many attempts", "retry_after": retry_after}), 429
+```
+Used for OTP verification attempts: max 6 per 5 minutes per mobile number.
 
 ---
 
@@ -228,6 +239,11 @@ Run:
 pytest -q
 ```
 Included tests: security basics, extended RBAC/rate limit/favorites ownership. Extend for: upload success path, HLS manifest validation, search filters.
+
+Suggested new tests (recent changes):
+* Case-insensitive login (e.g., EMAIL@example.com).
+* OTP attempt exhaustion returns 429 with retry_after.
+* Presence of new DB indexes (reflection-based check of AuditLog & Video tables).
 
 ---
 
@@ -325,6 +341,7 @@ Explore `app/routes/v1/` for full set.
 * Dependency audit monthly
 * Log review & anomaly detection
 * Backup verification
+* Rebuild / verify DB indexes after major upgrades
 
 ---
 
@@ -397,6 +414,39 @@ Example:
 Frontend Behavior:
 - Cursor stored as next_cursor; client sends last_id=next_cursor for subsequent pages.
 - When switching filters, reset cursor.
+
+---
+
+## 23. Recent Security & Performance Enhancements
+Summary of latest hardening & optimization work:
+
+| Area | Change | Impact |
+|------|--------|--------|
+| Login | Case-insensitive matching on email/username/employee_id | Reduces duplicate accounts / user friction |
+| OTP | Programmatic rate limit: 6 attempts / 5 min per mobile (`allow_action`) | Slows brute-force attacks |
+| Rate Limiting | Added `allow_action(key, limit, window_sec)` helper | Enables granular, contextual throttling beyond decorators |
+| Audit Logs | Composite indexes `(event, created_at)`, `(user_id, created_at)` | Faster filtered + time-sliced queries |
+| Videos | Composite indexes `(user_id, created_at)`, `(status, created_at)` | Quicker dashboard & moderation listings |
+| Audit Helper | `audit_log` now accepts `user_id` (alias of legacy `actor_id`) | Clearer semantics, backward compatible |
+
+### Applying New Index Migrations
+If updating an existing deployment pull the latest code then run:
+```bash
+flask db upgrade
+```
+This creates the new composite indexes without destructive changes.
+
+### OTP Flow (End-to-End)
+1. Client requests `/api/v1/auth/generate-otp` with mobile.
+2. User receives 6-digit code (valid 5 minutes).
+3. Client submits `/api/v1/auth/login` with `mobile` + `otp` OR uses dedicated verify endpoint if flow split.
+4. After 6 failed attempts within 5 minutes responses return 429 (include `retry_after`).
+
+### Future Hardening Ideas
+* Add functional/LOWER index for email if migrating to PostgreSQL for faster case-insensitive lookups.
+* Centralize OTP lifecycle metrics for monitoring (Grafana / Prometheus).
+* Add automated lock escalation after repeated OTP throttling.
+
 
 Security:
 - Both endpoints require SUPERADMIN role.

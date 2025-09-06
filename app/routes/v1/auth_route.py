@@ -120,12 +120,13 @@ def login():
         current_app.logger.info(
             f"Employee login attempt with identifier: {identifier}")
         if identifier:
+            ident_norm = identifier.strip().lower()
             user = (
                 User.query
                 .filter(
-                    (User.email == identifier) |
-                    (User.username == identifier) |
-                    (User.employee_id == identifier)
+                    (User.email.ilike(ident_norm)) |
+                    (User.username.ilike(ident_norm)) |
+                    (User.employee_id.ilike(ident_norm))
                 )
                 .first()
             )
@@ -149,6 +150,12 @@ def login():
     # --- OTP LOGIN ---
     elif mobile and otp:
         current_app.logger.info(f"OTP login attempt for mobile: {mobile}")
+        # OTP login: soft rate limit by mobile to slow brute-force
+        from app.security_utils import allow_action
+        allowed, retry_after = allow_action(f"otp:{mobile}", limit=6, window_sec=300)
+        if not allowed:
+            log_login_failed('otp_invalid')
+            return _htmx_or_json_error(f"Too many OTP attempts. Retry in {retry_after}s", 429)
         user = User.query.filter_by(mobile=mobile).first()
         if not user:
             current_app.logger.warning(

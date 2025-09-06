@@ -106,15 +106,20 @@ def log_structured(event: str, **fields):
     current_app.logger.info(msg)
 
 
-def audit_log(event: str, *, actor_id=None, target_user_id=None, detail=None):
-    """Persist audit log entry (best-effort)."""
+def audit_log(event: str, *, actor_id=None, user_id=None, target_user_id=None, detail=None):
+    """Persist audit log entry (best-effort).
+
+    Backward compatible: historically callers used actor_id; newer code may pass
+    user_id for clarity. If both provided, user_id wins.
+    """
     try:
         from app.extensions import db
         from app.models.AuditLog import AuditLog
         from flask import request as _req
+        effective_user_id = user_id or actor_id
         entry = AuditLog(
             event=event,
-            user_id=str(actor_id) if actor_id else None,
+            user_id=str(effective_user_id) if effective_user_id else None,
             target_user_id=str(target_user_id) if target_user_id else None,
             ip=getattr(_req, 'remote_addr', None),
             detail=detail
@@ -123,3 +128,38 @@ def audit_log(event: str, *, actor_id=None, target_user_id=None, detail=None):
         db.session.commit()
     except Exception as e:  # pragma: no cover
         current_app.logger.warning(f"Audit log persist failed: {e}")
+
+
+def allow_action(key: str, limit: int, window_sec: int):
+    """Lightweight programmatic rate limiter.
+
+    Returns (allowed: bool, retry_after: int|None)
+    Uses same storage backend as @rate_limit decorator.
+    """
+    now = time.time()
+    client = init_redis()
+    if client:
+        try:
+            redis_key = f"ra:{key}:{window_sec}"
+            pipe = client.pipeline()
+            pipe.lpush(redis_key, now)
+            pipe.lrange(redis_key, 0, limit)
+            pipe.ltrim(redis_key, 0, limit-1)
+            pipe.expire(redis_key, window_sec)
+            _, samples, _, _ = pipe.execute()
+            valid = [float(ts) for ts in samples if float(ts) >= now - window_sec]
+            if len(valid) > limit:
+                retry_after = int((valid[-1] + window_sec) - now)
+                return False, max(retry_after, 0)
+            return True, None
+        except Exception:
+            # fall through to memory
+            pass
+    bucket = _rate_store[key]
+    cutoff = now - window_sec
+    while bucket and bucket[0] < cutoff:
+        bucket.pop(0)
+    if len(bucket) >= limit:
+        return False, int(bucket[0] + window_sec - now)
+    bucket.append(now)
+    return True, None
