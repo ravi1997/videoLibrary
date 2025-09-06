@@ -220,6 +220,7 @@ def user_activity(user_id):
     view_rows = db.session.query(VideoViewEvent, Video.title).join(Video, Video.uuid == VideoViewEvent.video_id). \
         filter(VideoViewEvent.user_id == user.id).order_by(VideoViewEvent.id.desc()).limit(50).all()
     views = [ {'video_id': v.video_id, 'created_at': e.created_at.isoformat(), 'title': t} for e,t in view_rows for v in [e] ]
+    audit_log('super_user_activity_view', target_user_id=user_id)
     return jsonify({
         'user': user.to_dict(),
         'logins': [e.to_dict() for e in login_events],
@@ -252,6 +253,7 @@ def export_audit():
     from app.models import AuditLog
     qs = AuditLog.query.order_by(AuditLog.id.desc()).limit(500)
     rows = [a.to_dict() for a in qs]
+    audit_log('audit_export', detail=f'count={len(rows)}')
     return jsonify({'items': rows, 'count': len(rows)})
 
 @super_api_bp.get('/audit/list')
@@ -273,6 +275,7 @@ def list_audit():
         q = q.filter(AuditLog.target_user_id == target_id)
     total = q.count()
     items = q.order_by(AuditLog.id.desc()).offset(offset).limit(limit).all()
+    audit_log('audit_list', detail=f'total={total};returned={len(items)}')
     return jsonify({'items': [a.to_dict() for a in items], 'total': total, 'limit': limit, 'offset': offset})
 
 # (Page route now lives in view_route)
@@ -326,6 +329,7 @@ def super_list_users():
     rows = base.order_by(sort_col).offset((page-1)*page_size).limit(page_size).all()
     pages = max(1, (total + page_size - 1)//page_size)
     out = [u.to_dict() for u in rows]
+    audit_log('super_user_list', detail=f'page={page};returned={len(out)};total={total}')
     return jsonify({'items': out, 'page': page, 'pages': pages, 'total': total})
 
 @super_api_bp.get('/users/<uid>')
@@ -335,6 +339,7 @@ def super_get_user(uid):
     user = User.query.get(uid)
     if not user:
         return jsonify({'error': 'not_found'}), 404
+    audit_log('super_user_get', target_user_id=uid)
     return jsonify({'user': user.to_dict(include_sensitive=False)}), 200
 
 @super_api_bp.post('/users/<uid>/roles')

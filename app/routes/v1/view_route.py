@@ -201,6 +201,20 @@ def super_overview_full():
     ctx = build_super_overview_context()
     return render_template('super_overview.html', **ctx)
 
+@view_bp.route('/admin/super/audit')
+@jwt_required()
+@require_roles('superadmin')
+def super_audit_page():
+    """Superadmin audit log exploration page.
+
+    Uses same underlying API endpoints (/api/v1/super/audit/list & export).
+    We only seed initial recent logs (e.g., 50) for fast first paint.
+    """
+    from app.models import AuditLog
+    # Seed recent logs (limit 50) similar to overview page
+    recent = AuditLog.query.order_by(AuditLog.id.desc()).limit(50).all()
+    return render_template('super_audit.html', audit_logs=[a.to_dict() for a in recent])
+
 @view_bp.route('/admin/link-surgeons')
 @jwt_required()
 @require_roles('admin','superadmin')

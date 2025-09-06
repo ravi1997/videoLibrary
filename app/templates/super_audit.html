@@ -1,0 +1,53 @@
+{% extends 'layout.html' %}
+{% block title %}Superadmin Audit Logs{% endblock %}
+{% block content %}
+<div class="container mx-auto my-8 space-y-6">
+  <h1 class="text-2xl font-bold flex items-center gap-2">📜 <span>Audit Logs</span></h1>
+  <p class="muted text-sm">Restricted: SUPERADMIN only. View and filter recent audit events. Use export for JSON download.</p>
+
+  <div class="card space-y-3">
+    <h2 class="m-0 text-sm uppercase tracking-wide">Filter</h2>
+    <form id="auditFilter" class="flex flex-wrap gap-2 text-xs items-end">
+      <div>
+        <label class="block">Event</label>
+        <input name="event" class="input input-xs" placeholder="event name" />
+      </div>
+      <div>
+        <label class="block">User ID</label>
+        <input name="user_id" class="input input-xs" placeholder="actor id" />
+      </div>
+      <div>
+        <label class="block">Target User</label>
+        <input name="target_user_id" class="input input-xs" placeholder="target id" />
+      </div>
+      <div>
+        <label class="block">Limit</label>
+        <input name="limit" type="number" value="50" class="input input-xs" style="width:70px" />
+      </div>
+      <button class="btn btn-ghost text-xs" type="submit">Apply</button>
+      <button class="btn btn-ghost text-xs" type="button" id="resetAudit">Reset</button>
+      <button class="btn btn-ghost text-xs" type="button" id="exportAudit">Export (JSON)</button>
+    </form>
+    <div class="overflow-auto" style="max-height:480px;">
+      <table class="table text-xs" id="auditTable">
+        <thead><tr><th>ID</th><th>Event</th><th>User</th><th>Target</th><th>Detail</th><th>Time</th></tr></thead>
+        <tbody>
+        {% for a in audit_logs %}
+          <tr><td>{{ a.id }}</td><td>{{ a.event }}</td><td>{{ a.user_id or '' }}</td><td>{{ a.target_user_id or '' }}</td><td>{{ a.detail or '' }}</td><td>{{ a.created_at }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card space-y-3">
+    <h2 class="m-0 text-sm uppercase tracking-wide">Hints</h2>
+    <ul class="list-disc ml-5 text-xs space-y-1">
+      <li>Events are appended in real-time; refresh to see the newest.</li>
+      <li>Use narrow filters (event + user) for faster queries.</li>
+      <li>Export limited to 500 recent events via API.</li>
+    </ul>
+  </div>
+</div>
+<script src="/static/js/super_audit.js" defer></script>
+{% endblock %}

@@ -13,7 +13,7 @@ from flask_jwt_extended import (
     get_jwt, set_access_cookies, unset_jwt_cookies
 )
 from app.utils.decorator import require_roles
-from app.security_utils import rate_limit, ip_and_path_key, ip_key
+from app.security_utils import rate_limit, ip_and_path_key, ip_key, audit_log
 from app.extensions import db
 from app.models.RefreshToken import RefreshToken
 from werkzeug.utils import secure_filename
@@ -64,29 +64,26 @@ def register():
             return jsonify(message=str(pe)), 400
         current_app.logger.info(f"🔒 Password set for user: {user.username}")
 
-
         for role in roles_in:
             if role not in [r.value for r in Role]:
                 current_app.logger.warning(f"❌ Invalid role: {role}")
                 return jsonify(message=f"Invalid role: {role}"), 400
-
             # Check if the role is already assigned to the user
             if any(user_role.role == Role(role) for user_role in user.role_associations):
                 current_app.logger.info(
                     f"⚠️ Role {role} already assigned to user: {user.username}")
                 continue
-
             user.role_associations.append(UserRole(role=Role(role)))
             current_app.logger.info(f"✅ Role {role} added to user: {user.username}")
 
-        # Save to MongoDB
         db.session.add(user)
         db.session.commit()
         current_app.logger.info(f"✅ User registered successfully: {user.username} ({user.email})")
-
+        audit_log('register_success', actor_id=user.id)
         return jsonify(message="User registered"), 201
     except Exception as e:
         current_app.logger.exception(f"❌ Error : {e}")
+        audit_log('register_failed', detail=str(e))
         return jsonify(message="Something went wrong"), 500
 
 
@@ -127,13 +124,16 @@ def login():
             if not user:
                 current_app.logger.warning(
                     f"Login failed: No user found for identifier {identifier}")
+                audit_log('login_failed', detail='user_not_found', target_user_id=None)
                 return _htmx_or_json_error("Invalid credentials", 401)
             if not user.is_verified:
                 current_app.logger.warning(f"Login failed: user {identifier} not verified by admin")
+                audit_log('login_failed', target_user_id=user.id, detail='not_verified')
                 return _htmx_or_json_error("Account pending verification", 403)
             if not user.check_password(password):
                 current_app.logger.warning(
                     f"Login failed: Incorrect password for user {identifier}")
+                audit_log('login_failed', target_user_id=user.id, detail='bad_password')
                 return _htmx_or_json_error("Invalid credentials", 401)
             current_app.logger.info(
                 f"Login successful for employee user {identifier}")
@@ -145,17 +145,21 @@ def login():
         if not user:
             current_app.logger.warning(
                 f"Login failed: No user found for mobile {mobile}")
+            audit_log('login_failed', detail='otp_user_not_found')
             return _htmx_or_json_error("Invalid OTP", 401)
         if not user.verify_otp(otp):
             current_app.logger.warning(
                 f"Login failed: Invalid OTP for mobile {mobile}")
+            audit_log('login_failed', target_user_id=user.id if user else None, detail='otp_invalid')
             return _htmx_or_json_error("Invalid OTP", 401)
         if not user.is_verified:
             current_app.logger.warning(f"OTP login failed: user with mobile {mobile} not verified by admin")
+            audit_log('login_failed', target_user_id=user.id, detail='otp_not_verified')
             return _htmx_or_json_error("Account pending verification", 403)
         if user.user_type == 'general' and password:
             current_app.logger.warning(
                 f"General user attempted password login for mobile {mobile}")
+            audit_log('login_failed', target_user_id=user.id, detail='general_used_password_flow')
             return _htmx_or_json_error("General users must log in with OTP only", 403)
         current_app.logger.info(f"OTP login successful for mobile {mobile}")
 
@@ -225,6 +229,7 @@ def login():
 
     current_app.logger.info(
         f"Returning JSON response for user {user.username}")
+    audit_log('login_success', actor_id=user.id)
     return resp, 200
 
 @auth_bp.route('/refresh', methods=['POST'])
@@ -244,14 +249,16 @@ def refresh_token():
     token_hash = RefreshToken.hash_token(supplied)
     rt = RefreshToken.query.filter_by(token_hash=token_hash).first()
     if not rt:
-        # Do not reveal if invalid vs reused
+        audit_log('refresh_failed', detail='token_not_found')
         return jsonify({'msg': 'invalid refresh token'}), 401
     if not rt.is_active():
+        audit_log('refresh_failed', detail='inactive_token')
         return jsonify({'msg': 'expired or revoked'}), 401
 
     # Rotate (single-use) -> revoke current, issue new
     user = User.query.get(rt.user_id)
     if not user or not user.is_active:
+        audit_log('refresh_failed', detail='user_inactive', target_user_id=user.id if user else None)
         return jsonify({'msg': 'user inactive'}), 401
 
     access_token = create_access_token(
@@ -269,6 +276,7 @@ def refresh_token():
         db.session.rollback()
         current_app.logger.exception('refresh_token: DB commit failed')
         return jsonify({'msg': 'internal error'}), 500
+    audit_log('token_refreshed', actor_id=user.id)
     return jsonify({'access_token': access_token, 'refresh_token': new_plain}), 200
 
 @auth_bp.route('/generate-otp', methods=['POST'])
@@ -282,11 +290,13 @@ def generate_otp():
     mobile = data.get("mobile")
 
     if not mobile:
+        audit_log('generate_otp_failed', detail='missing_mobile')
         return jsonify({"msg": "Mobile number required", "success": False}), 400
 
     # Using SQLAlchemy (Postgres) instead of Mongo-style API
     user = User.query.filter_by(mobile=mobile).first()
     if not user:
+        audit_log('generate_otp_failed', detail='user_not_found')
         return jsonify({"msg": "User with this mobile not found", "success": False}), 404
 
     # Generate 6-digit OTP
@@ -298,6 +308,7 @@ def generate_otp():
             mobile, f"OTP for RPC Surgical video Library is {otp_code}")
         if otp_status != 200:
             current_app.logger.warning(f"Failed to send OTP SMS to {mobile}")
+            audit_log('generate_otp_failed', target_user_id=user.id, detail='sms_failed')
             return jsonify({"msg": "Failed to send OTP", "success": False}), 500
         db.session.commit()
     except Exception:
@@ -308,6 +319,7 @@ def generate_otp():
     # TODO: Integrate SMS provider here to send OTP
     current_app.logger.debug(f"[DEBUG] OTP for {mobile}: {otp_code}")  # Logging only for development
 
+    audit_log('generate_otp_success', target_user_id=user.id)
     return jsonify({"msg": "OTP sent successfully", "success": True}), 200
 
 
@@ -519,19 +531,23 @@ def verify_otp():
     code = data.get('otp')
 
     if not mobile or not code:
+        audit_log('verify_otp_failed', detail='missing_params')
         return jsonify({'msg': 'mobile and otp required'}), 400
 
     user = User.query.filter_by(mobile=mobile).first()
     if not user:
+        audit_log('verify_otp_failed', detail='user_not_found')
         return jsonify({'msg': 'user not found'}), 404
 
     if not user.verify_otp(code):
+        audit_log('verify_otp_failed', target_user_id=user.id, detail='invalid_code')
         return jsonify({'msg': 'invalid otp'}), 401
 
     # mark mobile verified for the session — don't mark is_verified yet
     user.otp = None
     user.otp_expiration = None
     db.session.commit()
+    audit_log('verify_otp_success', target_user_id=user.id)
     return jsonify({'msg': 'otp verified', 'mobile': mobile}), 200
 
 
@@ -550,6 +566,7 @@ def create_account():
     required = ['username', 'email', 'password', 'mobile']
     for r in required:
         if not data.get(r):
+            audit_log('create_account_failed', detail=f'missing_{r}')
             return jsonify({'msg': f'{r} required'}), 400
 
     employee_id = (data.get('employee_id') or '').strip() or None
@@ -563,6 +580,7 @@ def create_account():
     if not user:
         user = User.query.filter_by(mobile=mobile).first()
     if not user:
+        audit_log('create_account_failed', detail='provisional_not_found')
         return jsonify({'msg': 'provisional user not found'}), 404
 
     user.username = data['username']
@@ -570,6 +588,7 @@ def create_account():
     try:
         user.set_password(data['password'])
     except ValueError as pe:
+        audit_log('create_account_failed', target_user_id=user.id, detail=str(pe))
         return jsonify({'msg': str(pe)}), 400
 
     # Link temp uploaded document if present
@@ -602,8 +621,10 @@ def create_account():
     except Exception:
         db.session.rollback()
         current_app.logger.exception('create_account: DB commit failed')
+        audit_log('create_account_failed', target_user_id=user.id, detail='db_commit_failed')
         return jsonify({'msg': 'internal error'}), 500
 
+    audit_log('create_account_success', actor_id=user.id)
     return jsonify({'msg': 'account created', 'user_id': str(user.id)}), 200
 
 @auth_bp.route('/upload-temp-id', methods=['POST'])
@@ -614,9 +635,11 @@ def upload_temp_id():
     Later /create-account can bind this to the created user.
     """
     if 'file' not in request.files:
+        audit_log('upload_temp_id_failed', detail='file_missing')
         return jsonify({'msg': 'file missing'}), 400
     f = request.files['file']
     if f.filename == '':
+        audit_log('upload_temp_id_failed', detail='empty_filename')
         return jsonify({'msg': 'empty filename'}), 400
     upload_dir = os.path.join(os.getcwd(),"app","uploads" ,"id_uploads")
     current_app.logger.info(f"Upload directory: {upload_dir}")
@@ -626,13 +649,16 @@ def upload_temp_id():
     allowed_ext = {'.png', '.jpg', '.jpeg', '.pdf'}
     ext = (safe.rsplit('.',1)[-1]).lower() if '.' in safe else ''
     if ext and f'.{ext}' not in allowed_ext:
+        audit_log('upload_temp_id_failed', detail='bad_type')
         return jsonify({'msg': 'unsupported file type'}), 400
     dest = os.path.join(upload_dir, f"temp_{temp_id}_{safe}")
     try:
         f.save(dest)
     except Exception:
         current_app.logger.exception('upload_temp_id: failed to save file')
+        audit_log('upload_temp_id_failed', detail='save_failed')
         return jsonify({'msg': 'save failed'}), 500
+    audit_log('upload_temp_id_success', detail=f'temp_id={temp_id}')
     return jsonify({'msg': 'temp file stored', 'temp_upload_id': temp_id, 'filename': safe}), 200
 
 
@@ -641,14 +667,17 @@ def upload_temp_id():
 def upload_id(user_id):
     # Accept file upload (PDF) and mark document_submitted=True
     if 'file' not in request.files:
+        audit_log('upload_id_failed', target_user_id=user_id, detail='file_missing')
         return jsonify({'msg': 'file missing'}), 400
     f = request.files['file']
     if f.filename == '':
+        audit_log('upload_id_failed', target_user_id=user_id, detail='empty_filename')
         return jsonify({'msg': 'empty filename'}), 400
     filename = secure_filename(f.filename)
     allowed_ext = {'.png', '.jpg', '.jpeg', '.pdf'}
     ext = (filename.rsplit('.',1)[-1]).lower() if '.' in filename else ''
     if ext and f'.{ext}' not in allowed_ext:
+        audit_log('upload_id_failed', target_user_id=user_id, detail='bad_type')
         return jsonify({'msg': 'unsupported file type'}), 400
     upload_dir = current_app.config.get('UPLOAD_FOLDER', '/tmp/uploads')
     os.makedirs(upload_dir, exist_ok=True)
@@ -657,9 +686,11 @@ def upload_id(user_id):
 
     user = User.query.get(user_id)
     if not user:
+        audit_log('upload_id_failed', target_user_id=user_id, detail='user_not_found')
         return jsonify({'msg': 'user not found'}), 404
     user.document_submitted = True
     db.session.commit()
+    audit_log('upload_id_success', target_user_id=user_id, detail=filename)
     return jsonify({'msg': 'file uploaded'}), 200
 
 # -------------------- ADMIN VERIFICATION --------------------
@@ -686,6 +717,7 @@ def list_unverified():
             'document_submitted': u.document_submitted,
             'created_at': u.created_at.isoformat() if u.created_at else None,
         })
+    audit_log('list_unverified', detail=f'count={len(payload)}')
     return jsonify({'users': payload, 'count': len(payload)}), 200
 
 
@@ -702,15 +734,19 @@ def verify_user():
         data = request.form or {}
     target_id = (data.get('user_id') or '').strip()
     if not target_id:
+        audit_log('verify_user_failed', detail='missing_user_id')
         return jsonify({'msg': 'user_id required'}), 400
     target = User.query.get(target_id)
     if not target:
+        audit_log('verify_user_failed', detail='user_not_found')
         return jsonify({'msg': 'user not found'}), 404
     if target.is_verified:
+        audit_log('verify_user_skipped', target_user_id=target_id, detail='already_verified')
         return jsonify({'msg': 'already verified'}), 200
 
     # Optional rule: require document if general user
     if target.user_type == 'general' and not target.document_submitted:
+        audit_log('verify_user_failed', target_user_id=target_id, detail='doc_required')
         return jsonify({'msg': 'document required before verification'}), 409
 
     target.is_verified = True
@@ -720,8 +756,10 @@ def verify_user():
     except Exception:
         db.session.rollback()
         current_app.logger.exception('verify_user: DB commit failed')
+        audit_log('verify_user_failed', target_user_id=target_id, detail='db_commit_failed')
         return jsonify({'msg': 'internal error'}), 500
 
+    audit_log('verify_user_success', target_user_id=target_id)
     return jsonify({'msg': 'verified', 'user': {
         'id': str(target.id),
         'username': target.username,
@@ -743,9 +781,11 @@ def get_user_document(user_id=None):
     """
     target_id = user_id
     if not target_id:
+        audit_log('user_doc_failed', detail='missing_user_id')
         return jsonify({'msg': 'user_id missing'}), 400
     upload_dir = os.path.join(os.getcwd(),"app","uploads","id_uploads")
     if not os.path.isdir(upload_dir):
+        audit_log('user_doc_failed', target_user_id=target_id, detail='no_dir')
         return jsonify({'msg': 'no documents'}), 404
     # Find first matching file
     for fname in os.listdir(upload_dir):
@@ -755,7 +795,9 @@ def get_user_document(user_id=None):
                 return send_file(path, as_attachment=False)
             except Exception:
                 current_app.logger.exception('get_user_document: failed to send file')
+                audit_log('user_doc_failed', target_user_id=target_id, detail='send_error')
                 return jsonify({'msg': 'error reading file'}), 500
+    audit_log('user_doc_not_found', target_user_id=target_id)
     return jsonify({'msg': 'document not found'}), 404
 
 
@@ -772,11 +814,14 @@ def discard_user():
         data = request.form or {}
     target_id = (data.get('user_id') or '').strip()
     if not target_id:
+        audit_log('discard_user_failed', detail='missing_user_id')
         return jsonify({'msg': 'user_id required'}), 400
     target = User.query.get(target_id)
     if not target:
+        audit_log('discard_user_failed', target_user_id=target_id, detail='user_not_found')
         return jsonify({'msg': 'user not found'}), 404
     if target.is_verified:
+        audit_log('discard_user_failed', target_user_id=target_id, detail='already_verified')
         return jsonify({'msg': 'cannot discard verified user'}), 409
     upload_dir = current_app.config.get('UPLOAD_FOLDER', '/tmp/uploads')
     if os.path.isdir(upload_dir):
@@ -792,7 +837,9 @@ def discard_user():
     except Exception:
         db.session.rollback()
         current_app.logger.exception('discard_user: DB delete failed')
+        audit_log('discard_user_failed', target_user_id=target_id, detail='db_fail')
         return jsonify({'msg': 'internal error'}), 500
+    audit_log('discard_user_success', target_user_id=target_id)
     return jsonify({'msg': 'discarded'}), 200
 
 @auth_bp.post('/bulk/verify-users')
@@ -801,6 +848,7 @@ def bulk_verify_users():
     data = request.get_json(silent=True) or {}
     ids = data.get('user_ids') or []
     if not isinstance(ids, list) or not ids:
+        audit_log('bulk_verify_failed', detail='missing_ids')
         return jsonify({'msg':'user_ids required'}), 400
     users = User.query.filter(User.id.in_(ids), User.is_verified.is_(False)).all()
     count = 0
@@ -815,7 +863,9 @@ def bulk_verify_users():
         db.session.commit()
     except Exception:
         db.session.rollback()
+        audit_log('bulk_verify_failed', detail='db_fail')
         return jsonify({'msg':'internal error'}), 500
+    audit_log('bulk_verify_success', detail=f'count={count}')
     return jsonify({'msg':'ok','verified':count})
 
 @auth_bp.post('/bulk/discard-users')
@@ -824,6 +874,7 @@ def bulk_discard_users():
     data = request.get_json(silent=True) or {}
     ids = data.get('user_ids') or []
     if not isinstance(ids, list) or not ids:
+        audit_log('bulk_discard_failed', detail='missing_ids')
         return jsonify({'msg':'user_ids required'}), 400
     upload_dir = current_app.config.get('UPLOAD_FOLDER', '/tmp/uploads')
     users = User.query.filter(User.id.in_(ids), User.is_verified.is_(False)).all()
@@ -846,7 +897,9 @@ def bulk_discard_users():
         db.session.commit()
     except Exception:
         db.session.rollback()
+        audit_log('bulk_discard_failed', detail='db_fail')
         return jsonify({'msg':'internal error'}), 500
+    audit_log('bulk_discard_success', detail=f'count={removed}')
     return jsonify({'msg':'ok','discarded':removed})
 
 # -------------------- Helper --------------------
@@ -893,6 +946,7 @@ def logout():
 
     resp = jsonify(msg="Successfully logged out")
     unset_jwt_cookies(resp)
+    audit_log('logout', actor_id=get_jwt_identity())
     return resp, 200
 
 
@@ -902,6 +956,7 @@ def about_me():
     jwt_data = get_jwt()
     user_id = jwt_data.get('sub', 'unknown')
     user = User.query.get_or_404(user_id)
+    audit_log('me_view', actor_id=user.id)
     return jsonify(logged_in_as=user_schema.dump(user)), 200
 
 
@@ -918,6 +973,7 @@ def forgot_password():
     email = (data.get('email') or '').strip().lower()
     mobile = (data.get('mobile') or '').strip()
     if not email and not mobile:
+        audit_log('forgot_password_failed', detail='missing_identifier')
         return jsonify({'ok': False, 'msg': 'email or mobile required'}), 400
 
     user = None
@@ -928,6 +984,7 @@ def forgot_password():
 
     # Always return generic success to avoid user enumeration
     if not user:
+        audit_log('forgot_password_unknown', detail='identifier_not_found')
         return jsonify({'ok': True, 'msg': 'If the account exists, a reset token has been sent.'}), 200
 
     token = user.generate_reset_token()
@@ -936,6 +993,7 @@ def forgot_password():
     except Exception:
         db.session.rollback()
         current_app.logger.exception('forgot_password: failed to store reset token')
+        audit_log('forgot_password_failed', target_user_id=user.id, detail='db_fail')
         return jsonify({'ok': False, 'msg': 'internal error'}), 500
 
     # Dispatch via SMS if mobile provided and matches user; else log (email send placeholder)
@@ -945,8 +1003,10 @@ def forgot_password():
 
 
     if not dispatched:
+        audit_log('forgot_password_failed', target_user_id=user.id, detail='sms_fail')
         return jsonify({'ok': False, 'msg': 'failed to dispatch token'}), 500
 
+    audit_log('forgot_password_token_sent', target_user_id=user.id)
     return jsonify({'ok': True, 'msg': 'If the account exists, a reset token has been sent.'}), 200
 
 
@@ -963,10 +1023,12 @@ def reset_password():
     new_password = (data.get('password') or '').strip()
 
     if not identifier or not token or not new_password:
+        audit_log('reset_password_failed', detail='missing_params')
         return jsonify({'ok': False, 'msg': 'identifier, token, password required'}), 400
 
     user = User.query.filter((User.email == identifier) | (User.mobile == identifier)).first()
     if not user or not user.verify_reset_token(token):
+        audit_log('reset_password_failed', target_user_id=user.id if user else None, detail='invalid_token')
         return jsonify({'ok': False, 'msg': 'invalid token'}), 400
 
     user.set_password(new_password)
@@ -976,5 +1038,7 @@ def reset_password():
     except Exception:
         db.session.rollback()
         current_app.logger.exception('reset_password: failed to update password')
+        audit_log('reset_password_failed', target_user_id=user.id, detail='db_fail')
         return jsonify({'ok': False, 'msg': 'internal error'}), 500
+    audit_log('reset_password_success', actor_id=user.id)
     return jsonify({'ok': True, 'msg': 'password updated'}), 200

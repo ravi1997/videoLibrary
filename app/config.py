@@ -45,7 +45,8 @@ class Config:
     JWT_TOKEN_LOCATION = ["headers", "cookies"]
     # Lifetimes (can be overridden by env). Access short-lived; refresh long-lived
     from datetime import timedelta
-    JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=int(os.getenv("JWT_ACCESS_TOKEN_MINUTES", "15")))
+    # Access token lifetime (increase default from 15 -> 60 minutes). Override via JWT_ACCESS_TOKEN_MINUTES env.
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=int(os.getenv("JWT_ACCESS_TOKEN_MINUTES", "60")))
     REFRESH_TOKEN_EXPIRES_MINUTES = int(os.getenv("REFRESH_TOKEN_EXPIRES_MINUTES", "43200"))  # 30 days default
 
     # Superadmin bootstrap (optional). If set and no superadmin exists, one will be created at startup.

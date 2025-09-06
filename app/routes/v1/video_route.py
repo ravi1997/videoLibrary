@@ -21,7 +21,7 @@ from marshmallow import EXCLUDE
 from sqlalchemy import and_, case, desc, or_, func
 
 from app.extensions import db
-from app.models.video import Favourite, VideoProgress
+from app.models.video import Favourite, VideoProgress, VideoViewEvent
 from app.schemas.video_schema import (
     VideoMetaInputSchema, VideoMiniSchema, TagSchema, CategorySchema,
     SurgeonSchema, UserSchema
@@ -35,7 +35,7 @@ from app.models.enumerations import Role, VideoStatus
 from werkzeug.utils import secure_filename
 from app.tasks import enqueue_transcode, extract_thumbnail_ffmpeg
 from app.utils.decorator import require_roles  # we'll define in #2
-from app.security_utils import rate_limit, ip_and_path_key
+from app.security_utils import rate_limit, ip_and_path_key, audit_log
 from flask_jwt_extended import get_jwt_identity
 
 video_schema = VideoMetaInputSchema()
@@ -109,8 +109,23 @@ def _build_master_response(video: Video):
     if not video.file_path or not os.path.exists(video.file_path):
         abort(404, description="HLS master not found")
 
+    # Increment view count; do not commit yet if part of wider transaction
     video.views = (video.views or 0) + 1
-    db.session.commit()
+    try:
+        # If user context exists, record a view event (may be public route without JWT)
+        from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
+        try:
+            verify_jwt_in_request(optional=True)
+            uid = get_jwt_identity()
+        except Exception:
+            uid = None
+        if uid:
+            evt = VideoViewEvent(user_id=uid, video_id=video.uuid)
+            db.session.add(evt)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.warning('view_event_persist_failed', exc_info=True)
 
     directory = os.path.dirname(video.file_path)
     filename = os.path.basename(video.file_path)
@@ -137,6 +152,10 @@ def hls_master(video_id):
     file_path should point to .../master.m3u8. We serve the file from its folder.
     """
     video = Video.query.filter_by(uuid=video_id).first_or_404()
+    try:
+        audit_log('video_stream_master', target_user_id=get_jwt_identity(), detail=f'video={video_id}')
+    except Exception:
+        pass
     return _build_master_response(video)
 
     
@@ -159,6 +178,10 @@ def hls_assets(video_id, asset):
     Example: /hls/<id>/segments/segment_000.ts or /hls/<id>/keys/key.key
     """
     video = Video.query.filter_by(uuid=video_id).first_or_404()
+    try:
+        audit_log('video_stream_segment', target_user_id=get_jwt_identity(), detail=f'video={video_id};asset={asset}')
+    except Exception:
+        pass
     return _serve_hls_asset(video, asset)
 
 # ---------------- Public Playback (Optional) -----------------
@@ -170,6 +193,10 @@ def public_hls_master(video_id):
     # Only allow published videos publicly
     if video.status not in [VideoStatus.PUBLISHED, VideoStatus.PROCESSED]:
         abort(403)
+    try:
+        audit_log('public_video_stream_master', detail=f'video={video_id}')
+    except Exception:
+        pass
     return _build_master_response(video)
 
 @video_bp.route("/public/hls/<string:video_id>/<path:asset>", methods=["GET"])
@@ -179,6 +206,10 @@ def public_hls_assets(video_id, asset):
     video = Video.query.filter_by(uuid=video_id).first_or_404()
     if video.status not in [VideoStatus.PUBLISHED, VideoStatus.PROCESSED]:
         abort(403)
+    try:
+        audit_log('public_video_stream_segment', detail=f'video={video_id};asset={asset}')
+    except Exception:
+        pass
     return _serve_hls_asset(video, asset)
 
 
@@ -191,9 +222,12 @@ def get_progress(video_id):
     user_id = get_jwt_identity()
     progress = VideoProgress.query.filter_by(
         user_id=user_id, video_id=video_id).first()
-    return jsonify({
-        "position": round(progress.position, 2) if progress else 0
-    })
+    resp = {"position": round(progress.position, 2) if progress else 0}
+    try:
+        audit_log('video_progress_get', actor_id=user_id, detail=f'video={video_id};pos={resp["position"]}')
+    except Exception:
+        pass
+    return jsonify(resp)
 
 
 @video_bp.route('/progress', methods=['POST'])
@@ -218,6 +252,10 @@ def save_progress():
         db.session.add(progress)
 
     db.session.commit()
+    try:
+        audit_log('video_progress_saved', actor_id=user_id, detail=f'video={video_id};pos={position}')
+    except Exception:
+        pass
     return jsonify({"message": "Progress saved", "position": round(position, 2)})
 
 
@@ -243,6 +281,10 @@ def get_latest_history():
             "views": v.views,
             "created_at": v.created_at.isoformat(),
         })
+    try:
+        audit_log('history_latest_view', actor_id=user_id, detail=f'count={len(results)}')
+    except Exception:
+        pass
     return jsonify(results)
 
 
@@ -331,13 +373,12 @@ def get_watch_history():
             ),
         })
 
-    return jsonify({
-        "items": items,
-        "count": total,
-        "page": page,
-        "pages": pages,
-        "total_watched_sec": int(total_watched_sec),
-    }), 200
+    payload = {"items": items, "count": total, "page": page, "pages": pages, "total_watched_sec": int(total_watched_sec)}
+    try:
+        audit_log('history_list_view', actor_id=user_id, detail=f'page={page};count={len(items)};total={total}')
+    except Exception:
+        pass
+    return jsonify(payload), 200
 
 
 @video_bp.route("/history/<string:video_id>", methods=["DELETE"])
@@ -364,7 +405,12 @@ def delete_history_item(video_id: str):
         # Still return idempotent "not present" state to the client
         return jsonify({"removed": 0, "ok": False}), 200
 
-    return jsonify({"removed": int(deleted), "ok": True}), 200
+    resp = {"removed": int(deleted), "ok": True}
+    try:
+        audit_log('history_item_delete', actor_id=user_id, detail=f'video={video_id};removed={deleted}')
+    except Exception:
+        pass
+    return jsonify(resp), 200
 
 
 # DELETE /api/v1/me/history  -> clear entire history for this user
@@ -387,7 +433,12 @@ def clear_history():
         db.session.rollback()
         return jsonify({"removed": 0, "ok": False}), 200
 
-    return jsonify({"removed": int(deleted), "ok": True}), 200
+    resp = {"removed": int(deleted), "ok": True}
+    try:
+        audit_log('history_cleared', actor_id=user_id, detail=f'removed={deleted}')
+    except Exception:
+        pass
+    return jsonify(resp), 200
 
 # ------------------------------------------------------------------------------
 # 2) Video Metadata (detail)
@@ -397,6 +448,10 @@ def clear_history():
 @jwt_required()
 def get_video(video_id):
     video = Video.query.filter_by(uuid=video_id).first_or_404()
+    try:
+        audit_log('video_detail_view', actor_id=get_jwt_identity(), detail=f'video={video_id}')
+    except Exception:
+        pass
     return video_schema.dump(video), 200
 
 
@@ -412,7 +467,12 @@ def recommendations(video_id):
     # fall back to same-category if no tags
     if not recs:
         recs = _related_by_category(video, limit=12)
-    return videos_mini_schema.dump(recs), 200
+    resp = videos_mini_schema.dump(recs)
+    try:
+        audit_log('video_recommendations', actor_id=get_jwt_identity(), detail=f'video={video_id};returned={len(resp)}')
+    except Exception:
+        pass
+    return resp, 200
 
 
 @video_bp.route("/<string:video_id>/watch-next", methods=["GET"])
@@ -421,7 +481,12 @@ def watch_next(video_id):
     video = Video.query.filter_by(uuid=video_id).first_or_404()
     related = _related_by_category(
         video, limit=3) or _recommend_by_tags(video, limit=3)
-    return (videos_mini_schema.dump(related), 200) if related else (jsonify([]), 200)
+    data = videos_mini_schema.dump(related) if related else []
+    try:
+        audit_log('video_watch_next', actor_id=get_jwt_identity(), detail=f'video={video_id};returned={len(data)}')
+    except Exception:
+        pass
+    return (data, 200)
 
 
 # ------------------------------------------------------------------------------
@@ -472,7 +537,12 @@ def list_videos():
             abort(400, description="Invalid sort option")
 
     
-    return paginate_query(q, videos_mini_schema, default_per_page=12)
+    resp = paginate_query(q, videos_mini_schema, default_per_page=12)
+    try:
+        audit_log('video_list', actor_id=get_jwt_identity(), detail=f'category={request.args.get("category") or ""}')
+    except Exception:
+        pass
+    return resp
 
 
 @video_bp.route("/stats", methods=["GET"])
@@ -495,10 +565,12 @@ def me_stats():
         .filter(VideoProgress.user_id == user_id).count()
     ) or 0
 
-    return jsonify({
-        "favorites": fav_count or 0,
-        "watched": watched_count or 0,
-    }), 200
+    payload = {"favorites": fav_count or 0, "watched": watched_count or 0}
+    try:
+        audit_log('video_me_stats', actor_id=user_id, detail=f'fav={fav_count};watched={watched_count}')
+    except Exception:
+        pass
+    return jsonify(payload), 200
 
 # ------------------------------------------------------------------------------
 # 6) Create Video (metadata only)  |  7) Update  |  8) Delete
@@ -610,6 +682,10 @@ def upload_video():
 
         enqueue_transcode(video.uuid)
         extract_thumbnail_ffmpeg(path, video_uuid, output_dir=THUMBNAILS_DIR)
+        try:
+            audit_log('video_upload', actor_id=user_uuid, detail=f'video={video.uuid};size={size}')
+        except Exception:
+            pass
         return jsonify({"uuid": video.uuid, "status": video.status.value}), 201
 
     except Exception as e:
@@ -808,11 +884,12 @@ def init_chunk_upload():
             json.dump(meta, f)
     except Exception as e:
         current_app.logger.warning(f"Failed writing chunk meta for {upload_id}: {e}")
-    return jsonify({
-        "upload_id": upload_id,
-        "chunk_size": chunk_size,
-        "total_chunks": total_chunks
-    }), 201
+    resp = {"upload_id": upload_id, "chunk_size": chunk_size, "total_chunks": total_chunks}
+    try:
+        audit_log('chunk_upload_init', actor_id=get_jwt_identity(), detail=f'upload_id={upload_id};chunks={total_chunks}')
+    except Exception:
+        pass
+    return jsonify(resp), 201
 
 @video_bp.route('/upload/chunk', methods=['POST'])
 @jwt_required()
@@ -857,7 +934,12 @@ def upload_chunk():
         except Exception as e:
             current_app.logger.warning(f"Chunk hash verification failed ({upload_id}:{idx}): {e}")
             return jsonify({"error": "Hash verification error"}), 500
-    return jsonify({"received": idx, "verified": bool(supplied_hash)}), 200
+    resp = {"received": idx, "verified": bool(supplied_hash)}
+    try:
+        audit_log('chunk_upload_part', actor_id=get_jwt_identity(), detail=f'upload_id={upload_id};index={idx}')
+    except Exception:
+        pass
+    return jsonify(resp), 200
 
 @video_bp.route('/upload/complete', methods=['POST'])
 @jwt_required()
@@ -906,6 +988,10 @@ def complete_chunk_upload():
                 except Exception: pass
                 abort(400, description="Final file hash mismatch")
         video = _process_final_video(temp_path, filename, user_uuid)
+        try:
+            audit_log('chunk_upload_complete', actor_id=user_uuid, detail=f'upload_id={upload_id};video={video.uuid}')
+        except Exception:
+            pass
         return jsonify({"uuid": video.uuid, "status": video.status.value}), 201
     except Exception as e:
         current_app.logger.error(f"Chunked upload completion failed: {e}")
@@ -952,15 +1038,12 @@ def upload_status():
     next_index = (max(received) + 1) if received else 0
     if total_chunks is not None and next_index >= total_chunks:
         next_index = total_chunks  # ready to finalize
-    return jsonify({
-        "upload_id": upload_id,
-        "received": received,
-        "next_index": next_index,
-        "total_chunks": total_chunks,
-        "chunk_size": chunk_size,
-        "filename": filename,
-        "size": size
-    }), 200
+    payload = {"upload_id": upload_id, "received": received, "next_index": next_index, "total_chunks": total_chunks, "chunk_size": chunk_size, "filename": filename, "size": size}
+    try:
+        audit_log('chunk_upload_status', actor_id=get_jwt_identity(), detail=f'upload_id={upload_id};received={len(received)}')
+    except Exception:
+        pass
+    return jsonify(payload), 200
 
 
 @video_bp.route("/", methods=["POST"])
@@ -1043,6 +1126,10 @@ def create_video():
 
     db.session.commit()
 
+    try:
+        audit_log('video_metadata_update', actor_id=user_uuid, detail=f'video={video.uuid}')
+    except Exception:
+        pass
     return jsonify(VideoMetaInputSchema().dump(video)), 200
 
 
@@ -1084,6 +1171,10 @@ def update_video(video_id):
         video.surgeons = surg
 
     db.session.commit()
+    try:
+        audit_log('video_update', actor_id=editor_id, detail=f'video={video_id}')
+    except Exception:
+        pass
     return video_schema.dump(video), 200
 
 
@@ -1100,6 +1191,10 @@ def delete_video(video_id):
         return jsonify({"error": "Not owner"}), 403
     db.session.delete(video)
     db.session.commit()
+    try:
+        audit_log('video_delete', actor_id=deleter_id, detail=f'video={video_id}')
+    except Exception:
+        pass
     return jsonify({"ok": True}), 200
 
 
@@ -1119,6 +1214,10 @@ def channel_info(user_id):
         "video_count": video_count,
         "subscriber_count": 0
     })
+    try:
+        audit_log('channel_info_view', actor_id=get_jwt_identity(), detail=f'user={user_id}')
+    except Exception:
+        pass
     return data, 200
 
 
@@ -1134,6 +1233,10 @@ def surgeon_detail(surgeon_id):
         **SurgeonSchema().dump(s),
         "videos": videos_mini_schema.dump(s.videos)
     }
+    try:
+        audit_log('surgeon_detail_view', actor_id=get_jwt_identity(), detail=f'surgeon={surgeon_id}')
+    except Exception:
+        pass
     return payload, 200
 
 
@@ -1141,7 +1244,12 @@ def surgeon_detail(surgeon_id):
 @jwt_required()
 def surgeons_paginated_list():
     q = Surgeon.query.order_by(Surgeon.name.asc())
-    return paginate_query(q, surgeon_schema, default_per_page=20)
+    resp = paginate_query(q, surgeon_schema, default_per_page=20)
+    try:
+        audit_log('surgeons_list_view', actor_id=get_jwt_identity())
+    except Exception:
+        pass
+    return resp
 
 
 # ------------------------------------------------------------------------------
@@ -1152,7 +1260,12 @@ def surgeons_paginated_list():
 @jwt_required()
 def tags_list():
     tags = Tag.query.order_by(Tag.name.asc()).all()
-    return tag_schema.dump(tags), 200
+    resp = tag_schema.dump(tags)
+    try:
+        audit_log('tags_list_view', actor_id=get_jwt_identity(), detail=f'count={len(resp)}')
+    except Exception:
+        pass
+    return resp, 200
 
 
 @video_bp.route("/tags/top", methods=["GET"])
@@ -1172,6 +1285,10 @@ def tags_top_list():
 
     payload = [{"id": tid, "name": name, "count": int(
         cnt)} for tid, name, cnt in rows]
+    try:
+        audit_log('tags_top_list_view', actor_id=get_jwt_identity(), detail=f'returned={len(payload)}')
+    except Exception:
+        pass
     return jsonify(payload), 200
 
 
@@ -1179,21 +1296,36 @@ def tags_top_list():
 @jwt_required()
 def categories_list():
     cats = Category.query.order_by(Category.name.asc()).all()
-    return category_schema.dump(cats), 200
+    resp = category_schema.dump(cats)
+    try:
+        audit_log('categories_list_view', actor_id=get_jwt_identity(), detail=f'count={len(resp)}')
+    except Exception:
+        pass
+    return resp, 200
 
 
 @video_bp.route("/trending", methods=["GET"])
 @jwt_required()
 def trending_videos():
     q = Video.query.order_by(Video.views.desc())
-    return paginate_query(q, videos_mini_schema,default_per_page=10)
+    resp = paginate_query(q, videos_mini_schema,default_per_page=10)
+    try:
+        audit_log('trending_videos_view', actor_id=get_jwt_identity())
+    except Exception:
+        pass
+    return resp
 
 
 @video_bp.route("/surgeons", methods=["GET"])
 @jwt_required()
 def surgeons_list():
     surgeons = Surgeon.query.order_by(Surgeon.name.asc()).all()
-    return surgeon_schema.dump(surgeons), 200
+    resp = surgeon_schema.dump(surgeons)
+    try:
+        audit_log('surgeons_list_all_view', actor_id=get_jwt_identity(), detail=f'count={len(resp)}')
+    except Exception:
+        pass
+    return resp, 200
 
 
 # ------------------------------------------------------------------------------
@@ -1215,7 +1347,12 @@ def favourites_list():
     else:
         q = q.order_by(Video.title.asc())
 
-    return paginate_query(q, videos_mini_schema)
+    resp = paginate_query(q, videos_mini_schema)
+    try:
+        audit_log('favorites_list_view', actor_id=get_jwt_identity())
+    except Exception:
+        pass
+    return resp
 
 @video_bp.route("/<string:video_id>/favorite", methods=["GET"])
 @jwt_required()
@@ -1223,10 +1360,12 @@ def favourite_status(video_id):
     user_id = get_jwt_identity()
     favourite = Favourite.query.filter_by(
         user_id=user_id, video_id=video_id).first()
-    if favourite:
-        return jsonify({"favorite": True}), 200
-    else:
-        return jsonify({"favorite": False}), 200
+    payload = {"favorite": bool(favourite)}
+    try:
+        audit_log('favorite_status_view', actor_id=user_id, detail=f'video={video_id};fav={payload["favorite"]}')
+    except Exception:
+        pass
+    return jsonify(payload), 200
 
 @video_bp.route("/<string:video_id>/favorite", methods=["POST"])
 @jwt_required()
@@ -1242,6 +1381,10 @@ def add_favourite(video_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.warning(f"Duplicate favourite suppressed for user {user_id} video {video_id}: {e}")
+    try:
+        audit_log('favorite_add', actor_id=user_id, detail=f'video={video_id}')
+    except Exception:
+        pass
     return jsonify({"ok": True}), 200
 
 @video_bp.route("/<string:video_id>/favorite", methods=["DELETE"])
@@ -1252,6 +1395,10 @@ def remove_favourite(video_id):
     if favourite:
         db.session.delete(favourite)
         db.session.commit()
+    try:
+        audit_log('favorite_remove', actor_id=user_id, detail=f'video={video_id}')
+    except Exception:
+        pass
     return jsonify({"ok": True}), 200
 
 
@@ -1339,13 +1486,12 @@ def search_videos():
         video_dict["position"] = round(position or 0, 2)
         items.append(video_dict)
 
-    return jsonify({
-        "items": items,
-        "page": paginated.page,
-        "per_page": paginated.per_page,
-        "pages": paginated.pages,
-        "total": paginated.total
-    })
+    payload = {"items": items, "page": paginated.page, "per_page": paginated.per_page, "pages": paginated.pages, "total": paginated.total}
+    try:
+        audit_log('video_search', actor_id=get_jwt_identity(), detail=f'q={q};returned={len(items)}')
+    except Exception:
+        pass
+    return jsonify(payload)
 
 
 
@@ -1361,6 +1507,10 @@ def serve_thumbnail(video_id):
     path = os.path.join(thumb_dir, f"{video_id}.jpg")
     if not os.path.exists(path):
         abort(404)
+    try:
+        audit_log('thumbnail_serve', actor_id=get_jwt_identity(), detail=f'video={video_id}')
+    except Exception:
+        pass
     return send_from_directory(thumb_dir, f"{video_id}.jpg")
 
 
@@ -1371,11 +1521,20 @@ def serve_thumbnail(video_id):
 @video_bp.route("/<string:video_id>/view", methods=["POST"])
 @jwt_required()
 def add_view(video_id):
-    # If you add a 'views' column on Video, update it here.
-    # Example:
-    # video = Video.query.filter_by(uuid=video_id).first_or_404()
-    # video.views = (video.views or 0) + 1
-    # db.session.commit()
+    user_id = get_jwt_identity()
+    video = Video.query.filter_by(uuid=video_id).first_or_404()
+    video.views = (video.views or 0) + 1
+    evt = VideoViewEvent(user_id=user_id, video_id=video.uuid)
+    try:
+        db.session.add(evt)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.warning('add_view_persist_failed', exc_info=True)
+    try:
+        audit_log('video_view_event', actor_id=user_id, detail=f'video={video_id}')
+    except Exception:
+        pass
     return jsonify({"status": "ok"}), 201
 
 
@@ -1383,6 +1542,10 @@ def add_view(video_id):
 @jwt_required()
 def add_like(video_id):
     # If you add a 'likes' table or column, update it here.
+    try:
+        audit_log('video_like', actor_id=get_jwt_identity(), detail=f'video={video_id}')
+    except Exception:
+        pass
     return jsonify({"status": "ok"}), 201
 
 
@@ -1396,4 +1559,8 @@ def analytics():
     payload = request.get_json(force=True, silent=True) or {}
     # Store in your analytics store / DB here
     # print("Analytics payload:", payload)
+    try:
+        audit_log('analytics_event', actor_id=get_jwt_identity())
+    except Exception:
+        pass
     return jsonify({"ok": True}), 201

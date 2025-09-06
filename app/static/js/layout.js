@@ -146,8 +146,9 @@
       const v = String(r).toLowerCase();
       return v.replace(/^role[._-]/,''); // strip leading 'role.' / 'role-' / 'role_'
     });
-    const isUploader = roles.includes('uploader') || roles.includes('admin') || roles.includes('superadmin');
-    const isAdmin = roles.includes('admin') || roles.includes('superadmin');
+  const isSuper = roles.includes('superadmin');
+  const isUploader = roles.includes('uploader') || roles.includes('admin') || isSuper;
+  const isAdmin = roles.includes('admin') || isSuper;
 
     // Grouped links for automatic divider insertion between sections
   const groups = [
@@ -170,6 +171,7 @@
       .map(g => g.map(l => `<a class="block px-3 py-2 rounded hover:bg-[color:var(--brand-50)] no-underline" href="${escapeAttr(l.href)}">${escapeHtml(l.label)}</a>`).join(''))
       .join('<hr class="hr" />');
 
+    // Build admin section (no nested superadmin now)
     let adminSection = '';
     if (isAdmin) {
       const adminLinks = [
@@ -179,13 +181,33 @@
       ];
       const adminLinksHtml = adminLinks.map(l => `<a class="block px-3 py-2 rounded hover:bg-[color:var(--brand-50)] no-underline" href="${escapeAttr(l.href)}">${escapeHtml(l.label)}</a>`).join('');
       adminSection = `
-        <hr class=\"hr\" />
-        <div class=\"mt-1\">
-          <button id=\"adminMenuToggle\" class=\"w-full flex items-center justify-between px-3 py-2 rounded hover:bg-[color:var(--brand-50)] text-sm font-semibold\" aria-expanded=\"false\" aria-controls=\"adminMenuPanel\">
+        <hr class="hr" />
+        <div class="mt-1">
+          <button id="adminMenuToggle" class="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-[color:var(--brand-50)] text-sm font-semibold" aria-expanded="false" aria-controls="adminMenuPanel">
             <span>Admin</span>
-            <span id=\"adminChevron\" class=\"transition-transform text-xs\">▸</span>
+            <span id="adminChevron" class="transition-transform text-xs">▸</span>
           </button>
-          <div id=\"adminMenuPanel\" class=\"hidden pt-1 border-l border-[color:var(--border)] ml-2 pl-2\" role=\"group\">${adminLinksHtml}</div>
+          <div id="adminMenuPanel" class="hidden pt-1 border-l border-[color:var(--border)] ml-2 pl-2 space-y-1" role="group">${adminLinksHtml}</div>
+        </div>`;
+    }
+
+    // Separate superadmin section
+    let superSection = '';
+    if (isSuper) {
+      const superLinks = [
+        { href: '/admin/super/overview', label: 'Overview' },
+        { href: '/admin/super/users', label: 'Users' },
+        { href: '/admin/super/audit', label: 'Audit Logs' },
+      ];
+      const superLinksHtml = superLinks.map(l => `<a class="block px-3 py-2 rounded hover:bg-[color:var(--brand-50)] no-underline text-sm" href="${escapeAttr(l.href)}">${escapeHtml(l.label)}</a>`).join('');
+      superSection = `
+        <hr class="hr" />
+        <div class="mt-1">
+          <button id="superMenuToggle" class="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-[color:var(--brand-50)] text-sm font-semibold bg-[color:var(--surface-alt)]" aria-expanded="false" aria-controls="superMenuPanel">
+            <span>Superadmin</span>
+            <span id="superChevron" class="transition-transform text-xs">▸</span>
+          </button>
+          <div id="superMenuPanel" class="hidden pt-1 border-l border-[color:var(--border)] ml-2 pl-2 space-y-1" role="group">${superLinksHtml}</div>
         </div>`;
     }
 
@@ -202,11 +224,13 @@
           <hr class="hr" />
           ${linksHtml}
           ${adminSection}
+          ${superSection}
           <hr class="hr" />
           <button class="block w-full text-left px-3 py-2 rounded text-[color:var(--danger)] hover:bg-[color:var(--brand-50)]" id="logoutBtn">Logout</button>
         </div>
       </div>
     `;
+
     const btn = document.getElementById("userBtn");
     const menu = document.getElementById("userMenu");
 
@@ -262,6 +286,25 @@
           adminPanel.classList.remove('hidden');
           adminToggle.setAttribute('aria-expanded','true');
           if(adminChevron) adminChevron.style.transform='rotate(90deg)';
+        }
+      });
+    }
+    // Superadmin submenu toggle (separate section)
+    const superToggle = document.getElementById('superMenuToggle');
+    const superPanel = document.getElementById('superMenuPanel');
+    const superChevron = document.getElementById('superChevron');
+    if (superToggle && superPanel) {
+      superToggle.addEventListener('click', (e) => {
+        e.preventDefault();
+        const open = !superPanel.classList.contains('hidden');
+        if (open) {
+          superPanel.classList.add('hidden');
+          superToggle.setAttribute('aria-expanded','false');
+          if (superChevron) superChevron.style.transform='rotate(0deg)';
+        } else {
+          superPanel.classList.remove('hidden');
+          superToggle.setAttribute('aria-expanded','true');
+          if (superChevron) superChevron.style.transform='rotate(90deg)';
         }
       });
     }

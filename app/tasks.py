@@ -2,13 +2,14 @@
 import os
 import threading
 import time
-from typing import Optional
+from typing import Optional, Dict
 import subprocess
 import secrets
 
 from flask import current_app
 from app.extensions import db
 from app.models import Video
+from sqlalchemy import text
 from app.models.enumerations import VideoStatus
 
 _queue = []
@@ -43,6 +44,9 @@ def start_hls_worker(app):
     """
     t = threading.Thread(target=_worker_loop, args=(app,), daemon=True)
     t.start()
+    # Start nightly aggregation thread (lightweight)
+    a = threading.Thread(target=_nightly_rollup_loop, args=(app,), daemon=True)
+    a.start()
     return t
 
 
@@ -74,6 +78,69 @@ def _worker_loop(app):
                 _on_fail(video_id, error=str(e))
 
         time.sleep(0.5)
+
+
+# -------------------- View Event Aggregation --------------------
+ROLLUP_INTERVAL_HOURS = 24
+_last_rollup: float = 0.0
+
+def _nightly_rollup_loop(app):
+    """Periodically aggregate raw video_view_events into daily counts per video/user.
+    Creates table video_view_daily (video_id, day, views, user_views, updated_at) if missing.
+    """
+    global _last_rollup
+    while True:
+        now = time.time()
+        # Run at most once per interval
+        if now - _last_rollup >= ROLLUP_INTERVAL_HOURS * 3600:
+            try:
+                with app.app_context():
+                    _rollup_video_views()
+                    _last_rollup = now
+            except Exception as e:
+                app.logger.warning(f"Rollup failed: {e}", exc_info=True)
+        time.sleep(3600)  # wake hourly to check
+
+def _rollup_video_views():
+    """Aggregate raw events into daily summary table.
+    Summary metrics:
+      - total views per video per day
+      - distinct user views per video per day
+    """
+    engine = db.engine
+    with engine.begin() as conn:
+        # Ensure summary table exists (simple DDL)
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS video_view_daily (
+            video_id VARCHAR(36) NOT NULL,
+            day DATE NOT NULL,
+            views BIGINT NOT NULL,
+            user_views INTEGER NOT NULL,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (video_id, day)
+        )
+        """))
+        # Insert/update aggregates for days that have raw events but are missing or stale in summary
+        # (Recompute last 3 days to handle late arrivals)
+        conn.execute(text("""
+        INSERT INTO video_view_daily (video_id, day, views, user_views, updated_at)
+        SELECT vve.video_id,
+               (vve.created_at AT TIME ZONE 'UTC')::date AS day,
+               COUNT(*) AS views,
+               COUNT(DISTINCT vve.user_id) AS user_views,
+               NOW() AS updated_at
+        FROM video_view_events vve
+        WHERE vve.created_at >= (NOW() - INTERVAL '3 days')
+        GROUP BY vve.video_id, day
+        ON CONFLICT (video_id, day) DO UPDATE SET
+            views = EXCLUDED.views,
+            user_views = EXCLUDED.user_views,
+            updated_at = EXCLUDED.updated_at;
+        """))
+        # Optional: prune very old raw events (e.g., > 90 days) if table grows large
+        # Commented out by default; enable when retention policy decided.
+        # conn.execute(text("DELETE FROM video_view_events WHERE created_at < (NOW() - INTERVAL '180 days')"))
+    current_app.logger.info("Video view rollup complete")
 
 
 def enqueue_transcode(video_uuid: str) -> None:

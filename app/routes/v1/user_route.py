@@ -6,7 +6,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.schemas.user_schema import UserSchema, UserSettingsSchema
 from app.utils.decorator import require_roles
 from app.models.User import User, UserSettings, UserType, Role, MAX_OTP_RESENDS, PASSWORD_EXPIRATION_DAYS
-from app.security_utils import rate_limit, ip_and_path_key
+from app.security_utils import rate_limit, ip_and_path_key, audit_log
 from functools import wraps
 from datetime import datetime, timedelta, timezone
 import uuid
@@ -25,15 +25,19 @@ def change_password():
     user_id = get_jwt_identity()
     user = User.query.filter_by(id=user_id).first()
     if not user:
+        audit_log('password_change_failed', actor_id=user_id, detail='user_not_found')
         return jsonify({"message": "User not found"}), 404
     if not user.check_password(data.get("current_password", "")):
+        audit_log('password_change_failed', actor_id=user.id, detail='bad_current_password')
         return jsonify({"message": "Current password incorrect"}), 400
     try:
         user.set_password(data.get("new_password"))
     except ValueError as ve:
+        audit_log('password_change_failed', actor_id=user.id, detail=str(ve))
         return jsonify({"message": str(ve)}), 400
     user.require_password_change = False
     db.session.commit()
+    audit_log('password_changed', actor_id=user.id)
     return jsonify({"message": "Password changed"}), 200
 
 
@@ -83,6 +87,10 @@ def auth_status():
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def list_users():
     users = User.query.order_by(User.created_at.asc()).all()
+    try:
+        audit_log('user_list', actor_id=get_jwt_identity(), detail=f'count={len(users)}')
+    except Exception:
+        pass
     return jsonify([u.to_dict() for u in users]), 200
 
 
@@ -93,6 +101,10 @@ def get_user(user_id):
     user = User.query.filter_by(id=user_id).first()
     if not user:
         return jsonify({"message": "User not found"}), 404
+    try:
+        audit_log('user_get', actor_id=get_jwt_identity(), target_user_id=user_id)
+    except Exception:
+        pass
     return jsonify(user.to_dict()), 200
 
 
@@ -108,13 +120,25 @@ def create_user():
             user.set_password(password)
         db.session.add(user)
         db.session.commit()
+        try:
+            audit_log('user_create', actor_id=get_jwt_identity(), target_user_id=user.id)
+        except Exception:
+            pass
         return jsonify(user.to_dict()), 201
     except ValueError as ve:
         db.session.rollback()
+        try:
+            audit_log('user_create_failed', actor_id=get_jwt_identity(), detail=str(ve))
+        except Exception:
+            pass
         return jsonify({"message": str(ve)}), 400
     except Exception:
         db.session.rollback()
         current_app.logger.exception("create_user failed")
+        try:
+            audit_log('user_create_failed', actor_id=get_jwt_identity(), detail='internal_error')
+        except Exception:
+            pass
         return jsonify({"message": "Internal error"}), 500
 
 
@@ -149,6 +173,10 @@ def update_user(user_id):
     except Exception:
         db.session.rollback()
         return jsonify({"message": "Update failed"}), 500
+    try:
+        audit_log('user_update', actor_id=get_jwt_identity(), target_user_id=user_id)
+    except Exception:
+        pass
     return jsonify(user.to_dict()), 200
 
 
@@ -170,6 +198,10 @@ def delete_user(user_id):
     except Exception:
         db.session.rollback()
         return jsonify({"message": "Delete failed"}), 500
+    try:
+        audit_log('user_delete', actor_id=get_jwt_identity(), target_user_id=user_id)
+    except Exception:
+        pass
     return jsonify({"message": "User deleted"}), 200
 
 
@@ -182,6 +214,10 @@ def lock_user(user_id):
         return jsonify({"message": "User not found"}), 404
     user.lock_account()
     db.session.commit()
+    try:
+        audit_log('user_lock', actor_id=get_jwt_identity(), target_user_id=user_id)
+    except Exception:
+        pass
     return jsonify({"message": f"User {user.id} locked"}), 200
 
 
@@ -194,6 +230,10 @@ def unlock_user(user_id):
         return jsonify({"message": "User not found"}), 404
     user.unlock_account()
     db.session.commit()
+    try:
+        audit_log('user_unlock', actor_id=get_jwt_identity(), target_user_id=user_id)
+    except Exception:
+        pass
     return jsonify({"message": f"User {user.id} unlocked"}), 200
 
 
@@ -206,6 +246,10 @@ def reset_otp_count(user_id):
         return jsonify({"message": "User not found"}), 404
     user.otp_resend_count = 0
     db.session.commit()
+    try:
+        audit_log('user_reset_otp_count', actor_id=get_jwt_identity(), target_user_id=user_id)
+    except Exception:
+        pass
     return jsonify({"message": f"OTP count reset for {user.id}"}), 200
 
 # ─── Security Endpoints ─────────────────────────────────
@@ -223,6 +267,10 @@ def extend_password_expiry():
         return jsonify({"message": "User not found"}), 404
     user.password_expiration = datetime.now(timezone.utc) + timedelta(days=days)
     db.session.commit()
+    try:
+        audit_log('password_expiry_extended', actor_id=get_jwt_identity(), target_user_id=uid, detail=f'days={days}')
+    except Exception:
+        pass
     return jsonify({"message": "Password expiry extended"}), 200
 
 
@@ -233,6 +281,10 @@ def lock_status(user_id):
     user = User.query.filter_by(id=user_id).first()
     if not user:
         return jsonify({"message": "User not found"}), 404
+    try:
+        audit_log('user_lock_status', actor_id=get_jwt_identity(), target_user_id=user_id, detail=f'locked={user.is_locked()}')
+    except Exception:
+        pass
     return jsonify({"locked": user.is_locked()}), 200
 
 
@@ -283,6 +335,10 @@ def get_settings():
     user_id = get_jwt_identity()
     user_settings_schema = UserSettingsSchema()
     inst = _get_or_create_user_settings(user_id)
+    try:
+        audit_log('settings_get', actor_id=user_id)
+    except Exception:
+        pass
     return user_settings_schema.dump(inst), 200
 
 
@@ -312,4 +368,8 @@ def put_settings():
         # which has `.messages`, but falling back to str(e) is OK
         return jsonify({"error": "validation_error", "detail": str(e)}), 400
 
+    try:
+        audit_log('settings_update', actor_id=user_id, detail=','.join(payload.keys()))
+    except Exception:
+        pass
     return user_settings_schema.jsonify(inst), 200
