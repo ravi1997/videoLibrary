@@ -28,8 +28,16 @@ async function login() {
             return;
         }
 
-        // 2. Save access token
+        // 2. Save access token & decide eventual redirect
         localStorage.setItem("token", data.access_token);
+        let redirectTo = "/";
+        try {
+            const payloadPart = data.access_token.split('.')[1];
+            const decoded = JSON.parse(atob(payloadPart.replace(/-/g,'+').replace(/_/g,'/')));
+            if (decoded && decoded.pwd_change) {
+                redirectTo = '/change-password';
+            }
+        } catch (e) { /* ignore decode errors */ }
 
         // 3. Fetch profile
         const me = await fetch("/api/v1/auth/me", {
@@ -67,8 +75,8 @@ async function login() {
 
         console.log("✅ Logged in as:", user.username);
 
-        // 5. Redirect to homepage
-        window.location.href = "/";
+    // 5. Final redirect (normal or forced password change)
+    window.location.href = redirectTo;
     } catch (err) {
         console.error("Login error:", err);
         showError("An error occurred. Try again.");

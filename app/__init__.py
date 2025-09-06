@@ -22,6 +22,7 @@ from app.models.enumerations import Role
 from app.models.User import User, UserRole
 from datetime import datetime, timezone
 from sqlalchemy import event, inspect
+from flask_jwt_extended import verify_jwt_in_request, get_jwt
 
 
 
@@ -100,6 +101,42 @@ def create_app(config_class=Config):
         if 'Link' not in resp.headers:
             resp.headers.add('Link', '</static/images/favicon.ico>; rel="icon"')
         return resp
+
+    # ------------------------------------------------------------------
+    # Enforce password change requirement (post-auth) except for allowed paths
+    # ------------------------------------------------------------------
+    @app.before_request
+    def _enforce_password_change():
+        # Skip for static and unauthenticated endpoints
+        p = request.path
+        if p.startswith('/static') or p.startswith('/favicon'):
+            return
+        allowed_paths = {
+            '/api/v1/user/change-password',
+            '/change-password',
+            '/api/v1/auth/login',
+            '/api/v1/auth/logout',
+            '/api/v1/auth/me',
+            '/api/v1/user/status'
+        }
+        if p in allowed_paths or p.startswith('/auth'):
+            return
+        try:
+            verify_jwt_in_request(optional=True)
+            jwt_data = get_jwt()
+            if not jwt_data:
+                return
+            uid = jwt_data.get('sub')
+            if not uid:
+                return
+            # Lazy import to avoid circular
+            from app.models.User import User as U
+            user = U.query.get(uid)
+            if user and user.require_password_change:
+                return jsonify({'error':'password_change_required'}), 403
+        except Exception:
+            # Do not block if token missing/invalid; other handlers manage it
+            return
 
     @app.before_request
     def _set_csp_nonce():

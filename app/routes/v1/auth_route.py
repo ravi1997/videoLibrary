@@ -167,7 +167,8 @@ def login():
     access_token = create_access_token(
         identity=str(user.id),  # ✅ simple and safe
         additional_claims={
-            "roles": [ur.role.value for ur in user.role_associations]
+            "roles": [ur.role.value for ur in user.role_associations],
+            "pwd_change": bool(getattr(user, 'require_password_change', False))
         }
     )
     # Issue refresh token (persisted, hashed)
@@ -793,6 +794,60 @@ def discard_user():
         current_app.logger.exception('discard_user: DB delete failed')
         return jsonify({'msg': 'internal error'}), 500
     return jsonify({'msg': 'discarded'}), 200
+
+@auth_bp.post('/bulk/verify-users')
+@require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
+def bulk_verify_users():
+    data = request.get_json(silent=True) or {}
+    ids = data.get('user_ids') or []
+    if not isinstance(ids, list) or not ids:
+        return jsonify({'msg':'user_ids required'}), 400
+    users = User.query.filter(User.id.in_(ids), User.is_verified.is_(False)).all()
+    count = 0
+    for u in users:
+        # Optional rule: require doc for general users
+        if u.user_type == 'general' and not u.document_submitted:
+            continue
+        u.is_verified = True
+        u.updated_at = datetime.now(timezone.utc)
+        count += 1
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({'msg':'internal error'}), 500
+    return jsonify({'msg':'ok','verified':count})
+
+@auth_bp.post('/bulk/discard-users')
+@require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
+def bulk_discard_users():
+    data = request.get_json(silent=True) or {}
+    ids = data.get('user_ids') or []
+    if not isinstance(ids, list) or not ids:
+        return jsonify({'msg':'user_ids required'}), 400
+    upload_dir = current_app.config.get('UPLOAD_FOLDER', '/tmp/uploads')
+    users = User.query.filter(User.id.in_(ids), User.is_verified.is_(False)).all()
+    removed = 0
+    for u in users:
+        # delete files
+        try:
+            if os.path.isdir(upload_dir):
+                for fname in os.listdir(upload_dir):
+                    if fname.startswith(f"{u.id}_"):
+                        try:
+                            os.remove(os.path.join(upload_dir, fname))
+                        except Exception:
+                            current_app.logger.warning('bulk discard: failed to remove file %s', fname)
+        except Exception:
+            current_app.logger.exception('bulk discard: cleanup error')
+        db.session.delete(u)
+        removed += 1
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({'msg':'internal error'}), 500
+    return jsonify({'msg':'ok','discarded':removed})
 
 # -------------------- Helper --------------------
 

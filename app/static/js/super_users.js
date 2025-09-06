@@ -14,6 +14,10 @@
   const confirmModalEl = document.getElementById('confirmModal');
   let confirmModalOpen = false;
   let confirmResolve = null;
+  // Verification modal state
+  const verifyModalEl = document.getElementById('verifyModal');
+  let verifyModalOpen = false;
+  let verifyTargetId = null;
 
   function openModal(){
     if(!rolesModalEl) return;
@@ -148,6 +152,8 @@
       const rolesArr = (u.roles||[]);
       const roles = rolesArr.map(r=>`<span class=\"inline-block px-2 py-0.5 text-[10px] font-medium rounded-full border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200\">${escapeHtml(r)}</span>`).join(' ');
       const isSelected = selected.has(u.id);
+      const verifiedBadge = u.is_verified ? '<span class="inline-block px-2 py-0.5 text-[10px] rounded bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100">Yes</span>' : '<span class="inline-block px-2 py-0.5 text-[10px] rounded bg-yellow-100 text-yellow-800 dark:bg-yellow-800 dark:text-yellow-100">No</span>';
+      const docBadge = u.document_submitted ? '<span class="inline-block px-2 py-0.5 text-[10px] rounded bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-100">Yes</span>' : '<span class="inline-block px-2 py-0.5 text-[10px] rounded bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200">No</span>';
       tr.innerHTML = `
         <td><input type="checkbox" class="row-select" value="${u.id}" ${isSelected?'checked':''}></td>
         <td>${escapeHtml(u.username||'')}</td>
@@ -155,10 +161,13 @@
         <td class="space-x-1">${roles}</td>
         <td>${u.is_active ? 'Yes' : 'No'}</td>
         <td>${locked}</td>
+        <td>${verifiedBadge}</td>
+        <td>${docBadge}</td>
         <td>${u.failed_login_attempts}</td>
         <td>${u.last_login ? new Date(u.last_login).toLocaleString() : ''}</td>
         <td class="whitespace-nowrap px-2 py-1 space-x-1">
           <button class="px-2 py-1 text-xs border rounded border-blue-500 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900" data-action="roles" data-id="${u.id}">Roles</button>
+          ${!u.is_verified ? `<button class=\"px-2 py-1 text-xs border rounded border-green-500 text-green-600 hover:bg-green-50 dark:hover:bg-green-900\" data-action=\"verify\" data-id=\"${u.id}\">Verify</button>` : ''}
           ${u.is_active ? `<button class=\"px-2 py-1 text-xs border rounded border-yellow-500 text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-900\" data-action=\"deactivate\" data-id=\"${u.id}\">Deactivate</button>` : `<button class=\"px-2 py-1 text-xs border rounded border-green-500 text-green-600 hover:bg-green-50 dark:hover:bg-green-900\" data-action=\"activate\" data-id=\"${u.id}\">Activate</button>`}
           ${u.lock_until ? `<button class=\"px-2 py-1 text-xs border rounded border-red-500 text-red-600 hover:bg-red-50 dark:hover:bg-red-900\" data-action=\"unlock\" data-id=\"${u.id}\">Unlock</button>` : `<button class=\"px-2 py-1 text-xs border rounded border-red-500 text-red-600 hover:bg-red-50 dark:hover:bg-red-900\" data-action=\"lock\" data-id=\"${u.id}\">Lock</button>`}
         </td>`;
@@ -195,6 +204,10 @@
     const action = btn.getAttribute('data-action');
     const id = btn.getAttribute('data-id');
     if(action==='roles') return openRolesModal(id);
+    if(action==='verify'){
+  openVerifyModal(id);
+  return;
+    }
     let endpoint;
     if(action==='activate') endpoint = `/api/v1/super/users/${id}/activate`;
     else if(action==='deactivate') endpoint = `/api/v1/super/users/${id}/deactivate`;
@@ -245,9 +258,11 @@
         deactivate: 'Deactivate selected users?',
         lock: 'Lock selected users (they will be unable to login)?',
         unlock: 'Unlock selected users?',
+        verify: 'Verify selected users? (Users missing required documents will be skipped)',
+        discard: 'Discard (delete) selected unverified users? This cannot be undone.'
       };
       if(confirmMap[action]){
-        const ok = await openConfirm({title: 'Confirm Bulk Action', message: confirmMap[action]});
+        const ok = await openConfirm({title: 'Confirm Bulk Action', message: confirmMap[action], okText: action==='discard' ? 'Discard' : 'Confirm'});
         if(!ok) return;
       }
       let endpoint;
@@ -255,6 +270,8 @@
       else if(action==='deactivate') endpoint = '/api/v1/super/users/bulk/deactivate';
       else if(action==='lock') endpoint = '/api/v1/super/users/bulk/lock';
       else if(action==='unlock') endpoint = '/api/v1/super/users/bulk/unlock';
+      else if(action==='verify') endpoint = '/api/v1/auth/bulk/verify-users';
+      else if(action==='discard') endpoint = '/api/v1/auth/bulk/discard-users';
       if(!endpoint) return;
   await fetch(endpoint,{method:'POST', headers: jsonHeaders(), body: JSON.stringify({user_ids:[...selected]})});
       fetchUsers(currentPage);
@@ -411,4 +428,81 @@
       ev.preventDefault();
     });
   });
+
+  // ----- Verification Modal Logic -----
+  function openVerifyModal(id){
+    verifyTargetId = id;
+    if(!verifyModalEl) return;
+    verifyModalEl.classList.remove('hidden');
+    verifyModalOpen = true;
+    loadVerifyDetails();
+  }
+  function closeVerifyModal(){
+    if(!verifyModalEl) return;
+    verifyModalEl.classList.add('hidden');
+    verifyModalOpen = false;
+    verifyTargetId = null;
+  }
+  if(verifyModalEl){
+    verifyModalEl.addEventListener('click', e=>{
+      if(e.target.matches('[data-vmodal-dismiss], [data-vmodal-dismiss] *') || e.target === verifyModalEl){
+        closeVerifyModal();
+      }
+    });
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape' && verifyModalOpen) closeVerifyModal(); });
+  }
+
+  async function loadVerifyDetails(){
+    const body = document.getElementById('verifyModalBody');
+    const docActions = document.getElementById('verifyDocActions');
+    if(!verifyTargetId || !body) return;
+    body.innerHTML = '<div class="text-xs text-gray-500">Loading...</div>';
+    docActions.innerHTML = '';
+    try {
+      const r = await fetch(`/api/v1/super/users/${verifyTargetId}`, {headers: authHeader()});
+      if(!r.ok){ body.innerHTML = '<div class="text-xs text-red-600">Failed to load user.</div>'; return; }
+      const data = await r.json();
+      const u = data.user || {};
+      body.innerHTML = `
+        <div><span class="font-semibold">Username:</span> ${escapeHtml(u.username||'')}</div>
+        <div><span class="font-semibold">Email:</span> ${escapeHtml(u.email||'')}</div>
+        <div><span class="font-semibold">Employee ID:</span> ${escapeHtml(u.employee_id||'')}</div>
+        <div><span class="font-semibold">Mobile:</span> ${escapeHtml(u.mobile||'')}</div>
+        <div><span class="font-semibold">User Type:</span> ${escapeHtml(u.user_type||'')}</div>
+        <div><span class="font-semibold">Created:</span> ${u.created_at ? new Date(u.created_at).toLocaleString() : ''}</div>
+        <div><span class="font-semibold">Verified:</span> ${u.is_verified ? 'Yes' : 'No'}</div>
+        <div><span class="font-semibold">Document Submitted:</span> ${u.document_submitted ? 'Yes' : 'No'}</div>
+      `;
+      if(u.document_submitted){
+        const viewBtn = document.createElement('button');
+        viewBtn.className = 'px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-700 text-white text-xs';
+        viewBtn.textContent = 'View Document';
+        viewBtn.addEventListener('click', ()=> window.open(`/api/v1/auth/user-document/${verifyTargetId}`, '_blank'));
+        docActions.appendChild(viewBtn);
+      }
+    } catch(e){ body.innerHTML = '<div class="text-xs text-red-600">Error.</div>'; }
+  }
+
+  const confirmVerifyBtn = document.getElementById('confirmVerifyBtn');
+  const discardUserBtn = document.getElementById('discardUserBtn');
+  if(confirmVerifyBtn){
+    confirmVerifyBtn.addEventListener('click', async ()=>{
+      if(!verifyTargetId) return;
+      const ok = await openConfirm({title:'Confirm Verification', message:'Verify this user?'});
+      if(!ok) return;
+      await fetch('/api/v1/auth/verify-user', {method:'POST', headers: jsonHeaders(), body: JSON.stringify({user_id: verifyTargetId})});
+      closeVerifyModal();
+      fetchUsers(currentPage);
+    });
+  }
+  if(discardUserBtn){
+    discardUserBtn.addEventListener('click', async ()=>{
+      if(!verifyTargetId) return;
+      const ok = await openConfirm({title:'Discard User', message:'This will permanently delete the unverified user. Continue?', okText:'Discard'});
+      if(!ok) return;
+      await fetch('/api/v1/auth/discard-user', {method:'POST', headers: jsonHeaders(), body: JSON.stringify({user_id: verifyTargetId})});
+      closeVerifyModal();
+      fetchUsers(1);
+    });
+  }
 })();

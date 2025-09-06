@@ -32,6 +32,7 @@ def change_password():
         user.set_password(data.get("new_password"))
     except ValueError as ve:
         return jsonify({"message": str(ve)}), 400
+    user.require_password_change = False
     db.session.commit()
     return jsonify({"message": "Password changed"}), 200
 

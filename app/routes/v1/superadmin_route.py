@@ -256,6 +256,7 @@ def super_list_users():
     role_filter = (request.args.get('role') or '').strip().lower()  # role value
     active_filter = (request.args.get('active') or '').strip().lower()  # yes|no
     locked_filter = (request.args.get('locked') or '').strip().lower()  # yes|no
+    verified_filter = (request.args.get('verified') or '').strip().lower()  # yes|no
     sort_by = (request.args.get('sort_by') or 'created_at').lower()
     sort_dir = (request.args.get('sort_dir') or 'desc').lower()
     page = max(1, int(request.args.get('page', 1) or 1))
@@ -275,6 +276,10 @@ def super_list_users():
         base = base.filter(User.lock_until.isnot(None))
     elif locked_filter == 'no':
         base = base.filter(User.lock_until.is_(None))
+    if verified_filter == 'yes':
+        base = base.filter(User.is_verified.is_(True))
+    elif verified_filter == 'no':
+        base = base.filter(User.is_verified.is_(False))
 
     allowed_sort = {
         'username': User.username,
@@ -292,6 +297,15 @@ def super_list_users():
     pages = max(1, (total + page_size - 1)//page_size)
     out = [u.to_dict() for u in rows]
     return jsonify({'items': out, 'page': page, 'pages': pages, 'total': total})
+
+@super_api_bp.get('/users/<uid>')
+@jwt_required()
+@require_roles(Role.SUPERADMIN.value)
+def super_get_user(uid):
+    user = User.query.get(uid)
+    if not user:
+        return jsonify({'error': 'not_found'}), 404
+    return jsonify({'user': user.to_dict(include_sensitive=False)}), 200
 
 @super_api_bp.post('/users/<uid>/roles')
 @jwt_required()
@@ -342,14 +356,17 @@ def super_unlock_user(uid):
     user = User.query.get(uid)
     if not user:
         return jsonify({'error': 'not_found'}), 404
-    user.unlock_account()
+    try:
+        user.unlock_account()
+    except Exception:
+        current_app.logger.exception('super_unlock_user: SMS send failed')
     try:
         db.session.commit()
     except Exception:
         db.session.rollback()
         return jsonify({'error': 'persist_failed'}), 500
-    audit_log('user_unlocked', target_user_id=uid)
-    return jsonify({'status': 'ok'})
+    audit_log('user_unlocked', target_user_id=uid, detail='password_reset_forced_change')
+    return jsonify({'status': 'ok', 'temporary_password_sent': bool(user.mobile)})
 
 @super_api_bp.post('/users/<uid>/activate')
 @jwt_required()

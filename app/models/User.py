@@ -17,6 +17,8 @@ from flask import current_app
 
 from app.models.enumerations import Role, UserType
 from app.security_utils import password_strong
+from app.utils.generators import generate_strong_password
+from app.utils.services.sms import send_sms
 
 from ..extensions import db
 
@@ -63,6 +65,8 @@ class User(db.Model):
     is_verified = Column(Boolean, default=False)
     # Has the user uploaded their employee ID document
     document_submitted = Column(Boolean, default=False)
+    # Force user to change password at next login (e.g., after admin unlock reset)
+    require_password_change = Column(Boolean, default=False)
 
     failed_login_attempts = Column(Integer, default=0)
     otp_resend_count = Column(Integer, default=0)
@@ -103,6 +107,12 @@ class User(db.Model):
         self.lock_until = None
         self.failed_login_attempts = 0
         self.otp_resend_count = 0
+
+        temp_password = generate_strong_password(8)
+        self.set_password(temp_password)
+        send_sms(
+            self.mobile, f"Your account has been unlocked. Temporary password: {temp_password}. Please login and change it immediately.")
+        self.require_password_change = True
         logger.info(f"User {self.id} manually unlocked")
 
     def increment_failed_logins(self):
@@ -258,6 +268,9 @@ class User(db.Model):
             'is_active': self.is_active,
             'is_admin': self.is_admin,
             'is_email_verified': self.is_email_verified,
+            'is_verified': self.is_verified,
+            'document_submitted': self.document_submitted,
+            'require_password_change': self.require_password_change,
             'roles': [r.value for r in self.roles],
             'failed_login_attempts': self.failed_login_attempts,
             'otp_resend_count': self.otp_resend_count,

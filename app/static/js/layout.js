@@ -341,9 +341,29 @@
     return false;
   }
 
-  async function handleAuthFailure(status, retryFn) {
-    if (!(status === 401 || status === 403)) return;
+  async function handleAuthFailure(resp, retryFn) {
+    if (!resp || !(resp.status === 401 || resp.status === 403)) return;
+    const status = resp.status;
     const path = window.location.pathname;
+
+    // Special case: forced password change (403 with error=password_change_required)
+    if (status === 403) {
+      try {
+        const ct = resp.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          const clone = resp.clone();
+          const data = await clone.json().catch(()=>null);
+          if (data && data.error === 'password_change_required') {
+            if (!path.startsWith('/change-password')) {
+              showToast('Password update required. Redirecting…','info',3000);
+              setTimeout(()=>{ try { window.location.replace('/change-password'); } catch { window.location.href='/change-password'; } }, 500);
+            }
+            return; // Do not treat as auth expiry
+          }
+        }
+      } catch { /* ignore parse errors */ }
+    }
+
     if (path.startsWith('/login')) return; // already on login
     // Attempt refresh once per navigation
     if (!sessionStorage.getItem('__refresh_attempted')) {
@@ -370,7 +390,7 @@
       try {
         let resp = await attempt();
         if (resp.status === 401 || resp.status === 403) {
-            await handleAuthFailure(resp.status, async () => { resp = await attempt(); });
+          await handleAuthFailure(resp, async () => { resp = await attempt(); });
         }
         return resp;
       } catch (e) { throw e; }
@@ -385,7 +405,9 @@
       const xhr = this;
       xhr.addEventListener('load', () => {
         if (xhr.status === 401 || xhr.status === 403) {
-          handleAuthFailure(xhr.status);
+          // Build a faux response-like object for unified handler
+          let faux = { status: xhr.status, headers: { get: () => xhr.getResponseHeader('Content-Type') }, clone: () => ({ json: async () => { try { return JSON.parse(xhr.responseText); } catch { return null; } } }) };
+          handleAuthFailure(faux);
         }
       });
       return OrigSend.apply(xhr, args);
