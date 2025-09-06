@@ -4,6 +4,7 @@ from functools import wraps
 from flask import request, jsonify, current_app
 from collections import defaultdict
 import os
+import uuid
 try:
     import redis  # type: ignore
 except Exception:  # pragma: no cover
@@ -88,11 +89,11 @@ def rate_limit(key_func, limit: int, window_sec: int):
 
 
 def ip_key():
-    return f"ip:{request.remote_addr}"  # remote_addr may be proxied; add proxy fix if needed
+    return f"ip:{get_client_ip()}"
 
 
 def ip_and_path_key():
-    return f"ip:{request.remote_addr}:path:{request.path}"  # coarse key
+    return f"ip:{get_client_ip()}:path:{request.path}"
 
 
 def log_structured(event: str, **fields):
@@ -121,13 +122,45 @@ def audit_log(event: str, *, actor_id=None, user_id=None, target_user_id=None, d
             event=event,
             user_id=str(effective_user_id) if effective_user_id else None,
             target_user_id=str(target_user_id) if target_user_id else None,
-            ip=getattr(_req, 'remote_addr', None),
+            ip=get_client_ip(),
             detail=detail
         )
         db.session.add(entry)
         db.session.commit()
     except Exception as e:  # pragma: no cover
         current_app.logger.warning(f"Audit log persist failed: {e}")
+
+
+def get_client_ip() -> str:
+    """Best-effort client IP extraction with basic proxy awareness.
+
+    Trusts only the left-most X-Forwarded-For entry if header is present.
+    If not present, falls back to request.remote_addr. This is a conservative
+    approach; for production behind known proxies, prefer configuring
+    werkzeug.middleware.proxy_fix.ProxyFix in the app factory.
+    """
+    try:
+        # Take the first IP in XFF if available
+        xff = request.headers.get('X-Forwarded-For', '')
+        if xff:
+            first = xff.split(',')[0].strip()
+            if first:
+                return first
+        return request.remote_addr or ''
+    except Exception:
+        return ''
+
+
+def coerce_uuid(value):
+    """Return uuid.UUID(value) if possible, else original value.
+
+    Helps build cross-dialect-safe filters when UUID columns are compared
+    against string identities from JWT or request params.
+    """
+    try:
+        return uuid.UUID(str(value))
+    except Exception:
+        return value
 
 
 def allow_action(key: str, limit: int, window_sec: int):

@@ -6,7 +6,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.schemas.user_schema import UserSchema, UserSettingsSchema
 from app.utils.decorator import require_roles
 from app.models.User import User, UserSettings, UserType, Role, MAX_OTP_RESENDS, PASSWORD_EXPIRATION_DAYS
-from app.security_utils import rate_limit, ip_and_path_key, audit_log
+from app.security_utils import rate_limit, ip_and_path_key, audit_log, coerce_uuid
 from functools import wraps
 from datetime import datetime, timedelta, timezone
 import uuid
@@ -23,7 +23,8 @@ user_bp = Blueprint("user_bp", __name__)
 def change_password():
     data = request.json or {}
     user_id = get_jwt_identity()
-    user = User.query.filter_by(id=user_id).first()
+    uid = coerce_uuid(user_id)
+    user = User.query.filter_by(id=uid).first()
     if not user:
         audit_log('password_change_failed', actor_id=user_id, detail='user_not_found')
         return jsonify({"message": "User not found"}), 404
@@ -76,7 +77,8 @@ def auth_unlock():
 @jwt_required()
 def auth_status():
     user_id = get_jwt_identity()
-    user = User.query.filter_by(id=user_id).first()
+    uid = coerce_uuid(user_id)
+    user = User.query.filter_by(id=uid).first()
     return jsonify({"user": UserSchema().dump(user) if user else None}), 200
 
 # ─── CRUD Endpoints ─────────────────────────────────────
@@ -98,7 +100,8 @@ def list_users():
 @jwt_required()
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def get_user(user_id):
-    user = User.query.filter_by(id=user_id).first()
+    uid = coerce_uuid(user_id)
+    user = User.query.filter_by(id=uid).first()
     if not user:
         return jsonify({"message": "User not found"}), 404
     try:
@@ -146,7 +149,8 @@ def create_user():
 @jwt_required()
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def update_user(user_id):
-    user = User.query.filter_by(id=user_id).first()
+    uid = coerce_uuid(user_id)
+    user = User.query.filter_by(id=uid).first()
     if not user:
         return jsonify({"message": "User not found"}), 404
     data = request.json or {}
@@ -184,7 +188,8 @@ def update_user(user_id):
 @jwt_required()
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def delete_user(user_id):
-    user = User.query.filter_by(id=user_id).first()
+    uid = coerce_uuid(user_id)
+    user = User.query.filter_by(id=uid).first()
     if not user:
         return jsonify({"message": "User not found"}), 404
     # Prevent deletion of superadmin accounts

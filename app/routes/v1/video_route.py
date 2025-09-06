@@ -35,7 +35,8 @@ from app.models.enumerations import Role, VideoStatus
 from werkzeug.utils import secure_filename
 from app.tasks import enqueue_transcode, extract_thumbnail_ffmpeg
 from app.utils.decorator import require_roles  # we'll define in #2
-from app.security_utils import rate_limit, ip_and_path_key, audit_log
+from app.security_utils import rate_limit, ip_and_path_key, audit_log, coerce_uuid
+from app.utils.uploads import ALLOWED_VIDEO_EXT, VIDEO_MIME_PREFIX, get_max_video_mb
 from flask_jwt_extended import get_jwt_identity
 
 video_schema = VideoMetaInputSchema()
@@ -219,7 +220,7 @@ def public_hls_assets(video_id, asset):
 @video_bp.route('/progress/<string:video_id>', methods=['GET'])
 @jwt_required()
 def get_progress(video_id):
-    user_id = get_jwt_identity()
+    user_id = coerce_uuid(get_jwt_identity())
     progress = VideoProgress.query.filter_by(
         user_id=user_id, video_id=video_id).first()
     resp = {"position": round(progress.position, 2) if progress else 0}
@@ -233,7 +234,7 @@ def get_progress(video_id):
 @video_bp.route('/progress', methods=['POST'])
 @jwt_required()
 def save_progress():
-    user_id = get_jwt_identity()
+    user_id = coerce_uuid(get_jwt_identity())
     data = request.get_json()
     video_id = data.get("video_id")
     position = float(data.get("position", 0))
@@ -262,7 +263,7 @@ def save_progress():
 @video_bp.route("/history/latest", methods=["GET"])
 @jwt_required()
 def get_latest_history():
-    user_id = get_jwt_identity()
+    user_id = coerce_uuid(get_jwt_identity())
     history = (db.session.query(VideoProgress, Video)
                .join(Video, VideoProgress.video_id == Video.uuid)
                .filter(VideoProgress.user_id == user_id)
@@ -291,7 +292,7 @@ def get_latest_history():
 @video_bp.route("/history", methods=["GET"])
 @jwt_required()
 def get_watch_history():
-    user_id = get_jwt_identity()
+    user_id = coerce_uuid(get_jwt_identity())
 
     # ---- query params ----
     page = request.args.get("page", 1, type=int)
@@ -388,7 +389,7 @@ def delete_history_item(video_id: str):
     Removes a single watch-history record for the logged-in user.
     `video_id` should match Video.uuid (since VideoProgress.video_id == Video.uuid in your join).
     """
-    user_id = get_jwt_identity()
+    user_id = coerce_uuid(get_jwt_identity())
 
     deleted = (
         db.session.query(VideoProgress)
@@ -420,7 +421,7 @@ def clear_history():
     """
     Clears the entire watch history of the logged-in user.
     """
-    user_id = get_jwt_identity()
+    user_id = coerce_uuid(get_jwt_identity())
 
     deleted = (
         db.session.query(VideoProgress)
@@ -619,7 +620,7 @@ def get_md5(file_path):
 @require_roles(Role.UPLOADER.value, Role.ADMIN.value)
 @rate_limit(ip_and_path_key, limit=10, window_sec=3600)
 def upload_video():
-    user_uuid = get_jwt_identity()
+    user_uuid = coerce_uuid(get_jwt_identity())
     video_uuid = str(uuid.uuid4())
 
     if "file" not in request.files:
@@ -638,7 +639,7 @@ def upload_video():
         file.seek(0, os.SEEK_END)
         size = file.tell()
         file.seek(0)
-        max_size_mb = 500
+        max_size_mb = get_max_video_mb(current_app)
         if size > max_size_mb * 1024 * 1024:
             return jsonify({"error": "File too large"}), 400
         # MIME sniff (best-effort) to mitigate disguised uploads
@@ -646,7 +647,7 @@ def upload_video():
             import magic  # type: ignore
             mime = magic.from_buffer(file.read(2048), mime=True)
             file.seek(0)
-            if not mime.startswith('video/'):
+            if not mime.startswith(VIDEO_MIME_PREFIX):
                 return jsonify({"error": "Invalid MIME type"}), 400
         except Exception:
             file.seek(0)
@@ -756,9 +757,8 @@ def _cleanup_stale_sessions(max_age_hours: int = 24):
         current_app.logger.debug("Chunk cleanup encountered an error", exc_info=True)
 
 def _validate_extension(filename: str):
-    allowed_ext = {".mp4", ".mov", ".mkv", ".avi"}
     ext = os.path.splitext(filename)[1].lower()
-    if ext not in allowed_ext:
+    if ext not in ALLOWED_VIDEO_EXT:
         abort(400, description="Unsupported file type")
     return ext
 
@@ -787,7 +787,7 @@ def _assemble_chunks(upload_id: str, total_chunks: int, final_path: str):
 
 def _process_final_video(path: str, filename: str, user_uuid: str):
     # Largely mirrors logic in upload_video() after file saved
-    max_size_mb = 500
+    max_size_mb = get_max_video_mb(current_app)
     size = os.path.getsize(path)
     if size > max_size_mb * 1024 * 1024:
         os.remove(path)
@@ -797,7 +797,7 @@ def _process_final_video(path: str, filename: str, user_uuid: str):
         import magic  # type: ignore
         with open(path, 'rb') as f:
             mime = magic.from_buffer(f.read(2048), mime=True)
-        if not mime.startswith('video/'):
+        if not mime.startswith(VIDEO_MIME_PREFIX):
             os.remove(path)
             abort(400, description="Invalid MIME type")
     except Exception:
@@ -860,6 +860,13 @@ def init_chunk_upload():
     if size <= 0:
         return jsonify({"error": "Invalid size"}), 400
     _validate_extension(filename)
+    # Enforce global max size
+    try:
+        max_mb = get_max_video_mb(current_app)
+        if size > max_mb * 1024 * 1024:
+            return jsonify({"error": "File too large"}), 400
+    except Exception:
+        pass
     chunk_size = int(data.get('chunk_size') or (8 * 1024 * 1024))  # default 8MB
     if chunk_size < 1024 * 256:
         chunk_size = 1024 * 256
@@ -907,17 +914,34 @@ def upload_chunk():
         return jsonify({"error": "Invalid upload_id"}), 400
     # ownership check (if meta exists)
     meta_path = os.path.join(part_dir, 'meta.json')
+    meta = {}
     if os.path.exists(meta_path):
         try:
             with open(meta_path, 'r') as f:
                 meta = json.load(f)
             if meta.get('user_id') != get_jwt_identity():
                 return jsonify({"error": "Forbidden"}), 403
+            # Enforce index bounds if total_chunks known
+            try:
+                total_chunks = int(meta.get('total_chunks') or -1)
+                if total_chunks >= 0 and int(index) >= total_chunks:
+                    return jsonify({"error": "Index out of range"}), 400
+            except Exception:
+                pass
         except Exception:
             pass
     idx = int(index)
     part_path = os.path.join(part_dir, f"{idx}.part")
     file.save(part_path)
+    # size check vs negotiated chunk size (if available)
+    try:
+        max_part = int(meta.get('chunk_size') or 0)
+        if max_part and os.path.getsize(part_path) > max_part:
+            try: os.remove(part_path)
+            except Exception: pass
+            return jsonify({"error": "Chunk too large"}), 400
+    except Exception:
+        pass
     # integrity check if client supplied hash
     supplied_hash = request.form.get('chunk_sha256')
     if supplied_hash:
@@ -934,6 +958,23 @@ def upload_chunk():
         except Exception as e:
             current_app.logger.warning(f"Chunk hash verification failed ({upload_id}:{idx}): {e}")
             return jsonify({"error": "Hash verification error"}), 500
+    # cumulative size should not exceed declared file size (if present)
+    try:
+        declared = int(meta.get('size') or 0)
+        if declared > 0:
+            total = 0
+            for fname in os.listdir(part_dir):
+                if fname.endswith('.part'):
+                    try:
+                        total += os.path.getsize(os.path.join(part_dir, fname))
+                    except Exception:
+                        pass
+            if total > declared:
+                try: os.remove(part_path)
+                except Exception: pass
+                return jsonify({"error": "Exceeds declared size"}), 400
+    except Exception:
+        pass
     resp = {"received": idx, "verified": bool(supplied_hash)}
     try:
         audit_log('chunk_upload_part', actor_id=get_jwt_identity(), detail=f'upload_id={upload_id};index={idx}')
@@ -1063,12 +1104,12 @@ def create_video():
         return jsonify({"error": "Invalid input", "details": str(e)}), 400
 
     # Get user from JWT
-    user = User.query.get(user_uuid)
+    user = db.session.get(User, coerce_uuid(user_uuid))
     if not user:
         return jsonify({"error": "User not found"}), 404
 
     # Fetch video from DB
-    video = Video.query.get(data.uuid)
+    video = db.session.get(Video, data.uuid)
     if not video:
         return jsonify({"error": "Video not found"}), 404
 
@@ -1137,7 +1178,7 @@ def create_video():
 @jwt_required()
 @require_roles(Role.UPLOADER.value, Role.ADMIN.value)
 def update_video(video_id):
-    editor_id = get_jwt_identity()
+    editor_id = coerce_uuid(get_jwt_identity())
     video = Video.query.filter_by(uuid=video_id).first_or_404()
     # Ownership check: allow admin or owner
     # roles are in JWT claims; fetch from request context
@@ -1182,7 +1223,7 @@ def update_video(video_id):
 @jwt_required()
 @require_roles(Role.UPLOADER.value, Role.ADMIN.value)
 def delete_video(video_id):
-    deleter_id = get_jwt_identity()
+    deleter_id = coerce_uuid(get_jwt_identity())
     video = Video.query.filter_by(uuid=video_id).first_or_404()
     from flask_jwt_extended import get_jwt
     claims = get_jwt()
@@ -1335,8 +1376,10 @@ def surgeons_list():
 @video_bp.route("/favorite", methods=["GET"])
 @jwt_required()
 def favourites_list():
+    import uuid as _uuid
     user_id = get_jwt_identity()
-    q = Video.query.join(Video.favourites).filter(Favourite.user_id == user_id)
+    uid = coerce_uuid(user_id)
+    q = Video.query.join(Video.favourites).filter(Favourite.user_id == uid)
     
     sort = request.args.get("sort", "recent")  # "views" or "recent"
     page = request.args.get("page", default=1, type=int)
@@ -1357,9 +1400,11 @@ def favourites_list():
 @video_bp.route("/<string:video_id>/favorite", methods=["GET"])
 @jwt_required()
 def favourite_status(video_id):
+    import uuid as _uuid
     user_id = get_jwt_identity()
+    uid = coerce_uuid(user_id)
     favourite = Favourite.query.filter_by(
-        user_id=user_id, video_id=video_id).first()
+        user_id=uid, video_id=video_id).first()
     payload = {"favorite": bool(favourite)}
     try:
         audit_log('favorite_status_view', actor_id=user_id, detail=f'video={video_id};fav={payload["favorite"]}')
@@ -1370,11 +1415,13 @@ def favourite_status(video_id):
 @video_bp.route("/<string:video_id>/favorite", methods=["POST"])
 @jwt_required()
 def add_favourite(video_id):
+    import uuid as _uuid
     user_id = get_jwt_identity()
-    existing = Favourite.query.filter_by(user_id=user_id, video_id=video_id).first()
+    uid = coerce_uuid(user_id)
+    existing = Favourite.query.filter_by(user_id=uid, video_id=video_id).first()
     if existing:
         return jsonify({"ok": True, "already": True}), 200
-    fav = Favourite(user_id=user_id, video_id=video_id)
+    fav = Favourite(user_id=uid, video_id=video_id)
     try:
         db.session.add(fav)
         db.session.commit()
@@ -1390,8 +1437,10 @@ def add_favourite(video_id):
 @video_bp.route("/<string:video_id>/favorite", methods=["DELETE"])
 @jwt_required()
 def remove_favourite(video_id):
+    import uuid as _uuid
     user_id = get_jwt_identity()
-    favourite = Favourite.query.filter_by(user_id=user_id, video_id=video_id).first()
+    uid = coerce_uuid(user_id)
+    favourite = Favourite.query.filter_by(user_id=uid, video_id=video_id).first()
     if favourite:
         db.session.delete(favourite)
         db.session.commit()
@@ -1502,7 +1551,10 @@ def search_videos():
 @video_bp.route("/thumbnails/<string:video_id>.jpg", methods=["GET"])
 @jwt_required()
 def serve_thumbnail(video_id):
-    # Change this directory to where your thumbnails live
+    # Basic path safety: only allow UUID-like / slug ids
+    import re
+    if not re.fullmatch(r"[A-Za-z0-9\-]{1,64}", video_id or ""):
+        abort(404)
     thumb_dir = THUMBNAILS_DIR
     path = os.path.join(thumb_dir, f"{video_id}.jpg")
     if not os.path.exists(path):

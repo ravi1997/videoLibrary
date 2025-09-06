@@ -81,6 +81,11 @@ class Config:
     # Auto-run migrations at startup if set (safe for dev containers / CI). Accepts: true/1/yes
     AUTO_MIGRATE_ON_STARTUP = os.getenv("AUTO_MIGRATE_ON_STARTUP", "false").lower() in ("1", "true", "yes")
 
+    # Upload hardening
+    MAX_CONTENT_LENGTH_MB = int(os.getenv("MAX_CONTENT_LENGTH_MB", "600"))  # global cap
+    MAX_CONTENT_LENGTH = MAX_CONTENT_LENGTH_MB * 1024 * 1024
+    ID_UPLOAD_MAX_MB = int(os.getenv("ID_UPLOAD_MAX_MB", "10"))
+
 class DevelopmentConfig(Config):
     DEBUG = True
     SQLALCHEMY_DATABASE_URI = os.getenv("DEVELOPMENT_DATABASE_URI", "sqlite:///dev.db")

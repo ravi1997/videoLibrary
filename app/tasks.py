@@ -108,6 +108,11 @@ def _rollup_video_views():
       - distinct user views per video per day
     """
     engine = db.engine
+    # The rollup SQL uses PostgreSQL-specific syntax (AT TIME ZONE, ON CONFLICT).
+    # Skip on non-Postgres engines to avoid startup noise in dev/test (SQLite).
+    if getattr(engine, "name", "").lower() != "postgresql":
+        current_app.logger.info("Skipping view rollup: non-PostgreSQL engine detected (%s)", getattr(engine, "name", "unknown"))
+        return
     with engine.begin() as conn:
         # Ensure summary table exists (simple DDL)
         conn.execute(text("""

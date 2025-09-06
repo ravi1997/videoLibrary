@@ -14,7 +14,7 @@ class DashboardDailySnapshot(db.Model):
     @staticmethod
     def upsert_today(views:int, videos:int, users:int):
         today = date.today()
-        snap = DashboardDailySnapshot.query.get(today)
+        snap = db.session.get(DashboardDailySnapshot, today)
         if not snap:
             snap = DashboardDailySnapshot(day=today, total_views=views, total_videos=videos, total_users=users)
             db.session.add(snap)

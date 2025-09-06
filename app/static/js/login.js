@@ -20,10 +20,8 @@ async function login() {
         }
         payload = { identifier: username, password };
     } else { // otp mode
-        if (!mobile || !otp) {
-            showError("Enter mobile and OTP.");
-            return;
-        }
+        if (!mobile) { showError("Enter mobile number."); return; }
+        if (!otp) { showError("Enter the OTP sent to your mobile."); return; }
         payload = { mobile, otp };
     }
 
@@ -115,17 +113,67 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Toggle OTP vs password UI if elements exist
     const modeRadios = document.querySelectorAll('input[name="loginMode"]');
+    const identifierSection = document.getElementById('identifierSection');
     const passwordSection = document.getElementById('passwordSection');
     const otpSection = document.getElementById('otpSection');
+    const otpInputRow = document.getElementById('otpInputRow');
+    const otpField = document.getElementById('otp');
+    const usernameField = document.getElementById('username');
+    const passwordField = document.getElementById('password');
+    const sendBtn = document.getElementById('sendOtpBtn');
+    const resendRow = document.getElementById('resendRow');
+    const resendBtn = document.getElementById('resendOtpBtn');
+    const otpTimer = document.getElementById('otpTimer');
+    const otpSentMsg = document.getElementById('otpSentMsg');
+    const sendRow = document.getElementById('sendRow');
+    const mobileRow = document.getElementById('mobileRow');
+    const changeMobileLink = document.getElementById('changeMobileLink');
+    const optionsRow = document.getElementById('optionsRow');
+    const loginBtn = document.getElementById('loginBtn');
+    let otpTimerId = null;
+    let lastOtpMobile = '';
     if (modeRadios.length && passwordSection && otpSection) {
         const syncMode = () => {
             const current = document.querySelector('input[name="loginMode"]:checked')?.value;
             if (current === 'otp') {
+                // Hide username/password; show mobile area
+                if (identifierSection) identifierSection.classList.add('hidden');
                 passwordSection.classList.add('hidden');
                 otpSection.classList.remove('hidden');
+                // Toggle required attributes appropriately
+                usernameField?.removeAttribute('required');
+                passwordField?.removeAttribute('required');
+                otpField?.removeAttribute('required'); // will enable after Send OTP
+                // reset otp ui
+                otpField && (otpField.value = '');
+                if (otpInputRow) otpInputRow.classList.add('hidden');
+                if (resendRow) resendRow.classList.add('hidden');
+                if (otpSentMsg) otpSentMsg.classList.add('hidden');
+                if (changeMobileLink) changeMobileLink.classList.add('hidden');
+                if (sendBtn) sendBtn.classList.remove('hidden');
+                if (mobileRow) mobileRow.classList.remove('hidden');
+                // Hide remember/forgot and hide Sign in until OTP sent
+                optionsRow && optionsRow.classList.add('hidden');
+                loginBtn && loginBtn.classList.add('hidden');
+                stopOtpTimer();
             } else {
+                // Password mode
                 otpSection.classList.add('hidden');
                 passwordSection.classList.remove('hidden');
+                if (identifierSection) identifierSection.classList.remove('hidden');
+                usernameField?.setAttribute('required', 'true');
+                passwordField?.setAttribute('required', 'true');
+                otpField?.removeAttribute('required');
+                if (otpInputRow) otpInputRow.classList.add('hidden');
+                if (resendRow) resendRow.classList.add('hidden');
+                if (otpSentMsg) otpSentMsg.classList.add('hidden');
+                if (changeMobileLink) changeMobileLink.classList.add('hidden');
+                if (sendBtn) sendBtn.classList.remove('hidden');
+                if (mobileRow) mobileRow.classList.remove('hidden');
+                // Show remember/forgot and Sign in in password mode
+                optionsRow && optionsRow.classList.remove('hidden');
+                loginBtn && loginBtn.classList.remove('hidden');
+                stopOtpTimer();
             }
         };
         modeRadios.forEach(r => r.addEventListener('change', syncMode));
@@ -151,4 +199,123 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     window.__getRememberMe = () => !!document.getElementById("rememberMe")?.checked;
+
+    // OTP sending logic
+    function maskMobile(m) {
+        if (!m) return '';
+        const digits = m.replace(/\D/g, '');
+        if (digits.length <= 4) return '****' + digits;
+        const last4 = digits.slice(-4);
+        const prefix = m.startsWith('+') ? '+' : '';
+        return prefix + '******' + last4;
+    }
+
+    function formatTime(s) {
+        const mm = String(Math.floor(s / 60)).padStart(2, '0');
+        const ss = String(s % 60).padStart(2, '0');
+        return `${mm}:${ss}`;
+    }
+
+    function stopOtpTimer() {
+        if (otpTimerId) {
+            clearInterval(otpTimerId);
+            otpTimerId = null;
+        }
+        if (otpTimer) otpTimer.textContent = '00:00';
+        if (resendBtn) resendBtn.disabled = true;
+        if (sendBtn) sendBtn.disabled = false;
+    }
+
+    function startOtpTimer(seconds = 30) {
+        if (!otpTimer) return;
+        let remaining = seconds;
+        otpTimer.textContent = formatTime(remaining);
+        resendBtn && (resendBtn.disabled = true);
+        sendBtn && (sendBtn.disabled = true);
+        otpTimerId = setInterval(() => {
+            remaining -= 1;
+            if (remaining <= 0) {
+                clearInterval(otpTimerId);
+                otpTimerId = null;
+                otpTimer.textContent = '00:00';
+                resendBtn && (resendBtn.disabled = false);
+                sendBtn && (sendBtn.disabled = false);
+            } else {
+                otpTimer.textContent = formatTime(remaining);
+            }
+        }, 1000);
+    }
+
+    async function requestOtp(forResend = false) {
+        const mobile = document.getElementById('mobile')?.value.trim();
+        if (!mobile) {
+            alert('Enter mobile number');
+            return;
+        }
+        (forResend ? resendBtn : sendBtn) && ((forResend ? resendBtn : sendBtn).disabled = true);
+        try {
+            const res = await fetch('/api/v1/auth/generate-otp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mobile })
+            });
+            const body = await res.json().catch(() => ({}));
+            if (res.ok && body.success) {
+                lastOtpMobile = mobile;
+                // Show message with masked mobile
+                if (otpSentMsg) {
+                    otpSentMsg.textContent = `OTP sent to ${maskMobile(mobile)}. Please enter it below.`;
+                    otpSentMsg.classList.remove('hidden');
+                }
+                // Hide mobile and send row's button, show change link
+                if (mobileRow) mobileRow.classList.add('hidden');
+                if (sendBtn) sendBtn.classList.add('hidden');
+                if (changeMobileLink) changeMobileLink.classList.remove('hidden');
+                // Reveal OTP field and make it required
+                if (otpInputRow) otpInputRow.classList.remove('hidden');
+                otpField?.setAttribute('required', 'true');
+                // Show resend row and start timer
+                if (resendRow) resendRow.classList.remove('hidden');
+                // Now allow submit
+                loginBtn && loginBtn.classList.remove('hidden');
+                startOtpTimer(30);
+            } else {
+                alert(body.msg || 'Failed to send OTP');
+                (forResend ? resendBtn : sendBtn) && ((forResend ? resendBtn : sendBtn).disabled = false);
+            }
+        } catch (e) {
+            alert('Network error sending OTP');
+            (forResend ? resendBtn : sendBtn) && ((forResend ? resendBtn : sendBtn).disabled = false);
+        }
+    }
+
+    if (sendBtn) {
+        sendBtn.addEventListener('click', async () => {
+            requestOtp(false);
+        });
+    }
+
+    if (resendBtn) {
+        resendBtn.addEventListener('click', async () => {
+            requestOtp(true);
+        });
+    }
+
+    if (changeMobileLink) {
+        changeMobileLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            // Restore input state
+            if (mobileRow) mobileRow.classList.remove('hidden');
+            if (sendBtn) sendBtn.classList.remove('hidden');
+            if (resendRow) resendRow.classList.add('hidden');
+            if (otpSentMsg) otpSentMsg.classList.add('hidden');
+            if (changeMobileLink) changeMobileLink.classList.add('hidden');
+            if (otpInputRow) otpInputRow.classList.add('hidden');
+            otpField?.removeAttribute('required');
+            // Hide submit again until a new OTP is sent
+            loginBtn && loginBtn.classList.add('hidden');
+            stopOtpTimer();
+            document.getElementById('mobile')?.focus();
+        });
+    }
 });

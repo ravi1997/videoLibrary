@@ -5,6 +5,7 @@ from flask_jwt_extended import jwt_required
 from sqlalchemy import func, inspect
 
 from app.extensions import db
+from app.security_utils import coerce_uuid
 from app.models import User, Video
 from app.models.User import UserRole
 from app.models.video import Favourite
@@ -336,7 +337,7 @@ def super_list_users():
 @jwt_required()
 @require_roles(Role.SUPERADMIN.value)
 def super_get_user(uid):
-    user = User.query.get(uid)
+    user = db.session.get(User, coerce_uuid(uid))
     if not user:
         return jsonify({'error': 'not_found'}), 404
     audit_log('super_user_get', target_user_id=uid)
@@ -354,7 +355,7 @@ def super_update_user_roles(uid):
         rv = (r or '').strip().lower()
         if rv in valid_roles:
             clean.append(rv)
-    user = User.query.get(uid)
+    user = db.session.get(User, coerce_uuid(uid))
     if not user:
         return jsonify({'error': 'not_found'}), 404
     user.role_associations.clear()
@@ -372,7 +373,7 @@ def super_update_user_roles(uid):
 @jwt_required()
 @require_roles(Role.SUPERADMIN.value)
 def super_lock_user(uid):
-    user = User.query.get(uid)
+    user = db.session.get(User, coerce_uuid(uid))
     if not user:
         return jsonify({'error': 'not_found'}), 404
     user.lock_account()
@@ -388,7 +389,7 @@ def super_lock_user(uid):
 @jwt_required()
 @require_roles(Role.SUPERADMIN.value)
 def super_unlock_user(uid):
-    user = User.query.get(uid)
+    user = db.session.get(User, coerce_uuid(uid))
     if not user:
         return jsonify({'error': 'not_found'}), 404
     try:
@@ -407,7 +408,7 @@ def super_unlock_user(uid):
 @jwt_required()
 @require_roles(Role.SUPERADMIN.value)
 def super_activate_user(uid):
-    user = User.query.get(uid)
+    user = db.session.get(User, coerce_uuid(uid))
     if not user:
         return jsonify({'error': 'not_found'}), 404
     user.is_active = True
@@ -423,7 +424,7 @@ def super_activate_user(uid):
 @jwt_required()
 @require_roles(Role.SUPERADMIN.value)
 def super_deactivate_user(uid):
-    user = User.query.get(uid)
+    user = db.session.get(User, coerce_uuid(uid))
     if not user:
         return jsonify({'error': 'not_found'}), 404
     user.is_active = False

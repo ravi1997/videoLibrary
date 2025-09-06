@@ -20,6 +20,7 @@ from app.utils.audit_helpers import log_login_failed
 from app.extensions import db
 from app.models.RefreshToken import RefreshToken
 from werkzeug.utils import secure_filename
+from app.utils.uploads import ALLOWED_ID_EXT, ALLOWED_ID_MIMES
 import os
 from sqlalchemy.exc import ProgrammingError, IntegrityError
 from flask import send_file
@@ -265,7 +266,7 @@ def refresh_token():
         return jsonify({'msg': 'expired or revoked'}), 401
 
     # Rotate (single-use) -> revoke current, issue new
-    user = User.query.get(rt.user_id)
+    user = db.session.get(User, rt.user_id)
     if not user or not user.is_active:
         audit_log('refresh_failed', detail='user_inactive', target_user_id=user.id if user else None)
         return jsonify({'msg': 'user inactive'}), 401
@@ -650,11 +651,35 @@ def upload_temp_id():
     os.makedirs(upload_dir, exist_ok=True)
     temp_id = uuid.uuid4().hex
     safe = secure_filename(f.filename)
-    allowed_ext = {'.png', '.jpg', '.jpeg', '.pdf'}
+    allowed_ext = ALLOWED_ID_EXT
     ext = (safe.rsplit('.',1)[-1]).lower() if '.' in safe else ''
     if ext and f'.{ext}' not in allowed_ext:
         audit_log('upload_temp_id_failed', detail='bad_type')
         return jsonify({'msg': 'unsupported file type'}), 400
+    # Enforce size and MIME (best-effort)
+    max_mb = current_app.config.get('ID_UPLOAD_MAX_MB', 10)
+    try:
+        # Content-Length may be missing when multipart is buffered; rely on global cap too
+        length = request.content_length or 0
+        if length and length > max_mb * 1024 * 1024:
+            audit_log('upload_temp_id_failed', detail='too_large')
+            return jsonify({'msg': 'file too large'}), 413
+    except Exception:
+        pass
+    try:
+        import magic  # type: ignore
+        head = f.stream.read(2048)
+        mime = magic.from_buffer(head, mime=True)
+        f.stream.seek(0)
+        allowed_mimes = ALLOWED_ID_MIMES
+        if mime not in allowed_mimes:
+            audit_log('upload_temp_id_failed', detail=f'bad_mime:{mime}')
+            return jsonify({'msg': 'unsupported file type'}), 400
+    except Exception:
+        try:
+            f.stream.seek(0)
+        except Exception:
+            pass
     dest = os.path.join(upload_dir, f"temp_{temp_id}_{safe}")
     try:
         f.save(dest)
@@ -678,17 +703,40 @@ def upload_id(user_id):
         audit_log('upload_id_failed', target_user_id=user_id, detail='empty_filename')
         return jsonify({'msg': 'empty filename'}), 400
     filename = secure_filename(f.filename)
-    allowed_ext = {'.png', '.jpg', '.jpeg', '.pdf'}
+    allowed_ext = ALLOWED_ID_EXT
     ext = (filename.rsplit('.',1)[-1]).lower() if '.' in filename else ''
     if ext and f'.{ext}' not in allowed_ext:
         audit_log('upload_id_failed', target_user_id=user_id, detail='bad_type')
         return jsonify({'msg': 'unsupported file type'}), 400
+    # Enforce size and MIME (best-effort)
+    max_mb = current_app.config.get('ID_UPLOAD_MAX_MB', 10)
+    try:
+        length = request.content_length or 0
+        if length and length > max_mb * 1024 * 1024:
+            audit_log('upload_id_failed', target_user_id=user_id, detail='too_large')
+            return jsonify({'msg': 'file too large'}), 413
+    except Exception:
+        pass
+    try:
+        import magic  # type: ignore
+        head = f.stream.read(2048)
+        mime = magic.from_buffer(head, mime=True)
+        f.stream.seek(0)
+        allowed_mimes = ALLOWED_ID_MIMES
+        if mime not in allowed_mimes:
+            audit_log('upload_id_failed', target_user_id=user_id, detail=f'bad_mime:{mime}')
+            return jsonify({'msg': 'unsupported file type'}), 400
+    except Exception:
+        try:
+            f.stream.seek(0)
+        except Exception:
+            pass
     upload_dir = current_app.config.get('UPLOAD_FOLDER', '/tmp/uploads')
     os.makedirs(upload_dir, exist_ok=True)
     dest = os.path.join(upload_dir, f"{user_id}_{filename}")
     f.save(dest)
 
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if not user:
         audit_log('upload_id_failed', target_user_id=user_id, detail='user_not_found')
         return jsonify({'msg': 'user not found'}), 404
@@ -740,7 +788,7 @@ def verify_user():
     if not target_id:
         audit_log('verify_user_failed', detail='missing_user_id')
         return jsonify({'msg': 'user_id required'}), 400
-    target = User.query.get(target_id)
+    target = db.session.get(User, target_id)
     if not target:
         audit_log('verify_user_failed', detail='user_not_found')
         return jsonify({'msg': 'user not found'}), 404
@@ -820,7 +868,7 @@ def discard_user():
     if not target_id:
         audit_log('discard_user_failed', detail='missing_user_id')
         return jsonify({'msg': 'user_id required'}), 400
-    target = User.query.get(target_id)
+    target = db.session.get(User, target_id)
     if not target:
         audit_log('discard_user_failed', target_user_id=target_id, detail='user_not_found')
         return jsonify({'msg': 'user not found'}), 404

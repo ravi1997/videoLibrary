@@ -4,6 +4,7 @@ from flask_jwt_extended import jwt_required
 from sqlalchemy import func, inspect
 
 from app.extensions import db
+from app.security_utils import coerce_uuid
 from app.models import User, Surgeon, Video, VideoSurgeon, RefreshToken, DashboardDailySnapshot
 from app.models.User import UserRole
 from app.models.video import Favourite
@@ -140,12 +141,12 @@ def bulk_link_surgeons():
     user_id = (data.get('user_id') or '').strip()
     if not surgeon_ids or not user_id:
         return jsonify({'msg': 'surgeon_ids and user_id required'}), 400
-    user = User.query.get(user_id)
+    user = db.session.get(User, coerce_uuid(user_id))
     if not user:
         return jsonify({'msg': 'user not found'}), 404
     updated = 0
     for sid in surgeon_ids:
-        s = Surgeon.query.get(sid)
+        s = db.session.get(Surgeon, sid)
         if s:
             s.user_id = user.id
             updated += 1
@@ -166,7 +167,7 @@ def bulk_unlink_surgeons():
         return jsonify({'msg': 'surgeon_ids required'}), 400
     updated = 0
     for sid in surgeon_ids:
-        s = Surgeon.query.get(sid)
+        s = db.session.get(Surgeon, sid)
         if s and s.user_id is not None:
             s.user_id = None
             updated += 1
@@ -185,10 +186,10 @@ def link_surgeon_user(sid):
     user_id = (data.get('user_id') or '').strip()
     if not user_id:
         return jsonify({'msg': 'user_id required'}), 400
-    surgeon = Surgeon.query.get(sid)
+    surgeon = db.session.get(Surgeon, sid)
     if not surgeon:
         return jsonify({'msg': 'surgeon not found'}), 404
-    user = User.query.get(user_id)
+    user = db.session.get(User, coerce_uuid(user_id))
     if not user:
         return jsonify({'msg': 'user not found'}), 404
     surgeon.user_id = user.id
@@ -203,7 +204,7 @@ def link_surgeon_user(sid):
 @jwt_required()
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def unlink_surgeon_user(sid):
-    surgeon = Surgeon.query.get(sid)
+    surgeon = db.session.get(Surgeon, sid)
     if not surgeon:
         return jsonify({'msg': 'surgeon not found'}), 404
     surgeon.user_id = None
@@ -218,12 +219,12 @@ def unlink_surgeon_user(sid):
 @jwt_required()
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def surgeon_detail(sid):
-    s = Surgeon.query.get(sid)
+    s = db.session.get(Surgeon, sid)
     if not s:
         return jsonify({'msg': 'not found'}), 404
     user = None
     if s.user_id:
-        u = User.query.get(s.user_id)
+        u = db.session.get(User, s.user_id)
         if u:
             user = {'id': str(u.id), 'username': u.username, 'email': u.email}
     return jsonify({
@@ -238,7 +239,7 @@ def surgeon_detail(sid):
 @jwt_required()
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def user_surgeons(uid):
-    u = User.query.get(uid)
+    u = db.session.get(User, coerce_uuid(uid))
     if not u:
         return jsonify({'msg': 'not found'}), 404
     surgeons = Surgeon.query.filter(Surgeon.user_id == u.id).all()
@@ -250,7 +251,7 @@ def user_surgeons(uid):
 @admin_api_bp.get('/surgeons/<int:sid>/videos')
 @jwt_required()
 def surgeon_videos(sid):
-    s = Surgeon.query.get(sid)
+    s = db.session.get(Surgeon, sid)
     if not s:
         return jsonify({'msg': 'not found'}), 404
     q = (request.args.get('q') or '').strip().lower()
@@ -292,7 +293,7 @@ def surgeon_videos(sid):
 @admin_api_bp.get('/users/<uid>/videos')
 @jwt_required()
 def user_videos(uid):
-    u = User.query.get(uid)
+    u = db.session.get(User, coerce_uuid(uid))
     if not u:
         return jsonify({'msg': 'not found'}), 404
     q = (request.args.get('q') or '').strip().lower()

@@ -119,8 +119,11 @@ def test_ownership_enforced(client, uploader, user, uploader_header, auth_header
     assert r.status_code == 403
 
 
-def test_upload_extension_rejection(client, uploader_header):
-    data = {'file': (pytest.ensuretemp('fake').open('wb'), 'malicious.txt')}
+def test_upload_extension_rejection(client, uploader_header, tmp_path):
+    # Create a temporary file handle for upload
+    fake = tmp_path / 'malicious.txt'
+    fake.write_bytes(b'not a real video')
+    data = {'file': (fake.open('rb'), 'malicious.txt')}
     # Not a valid ext, expect 400
     r = client.post('/api/v1/video/upload', data=data, headers=uploader_header, content_type='multipart/form-data')
     assert r.status_code in (400,415)

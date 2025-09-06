@@ -11,7 +11,7 @@ from app.models.video import Favourite
 from app.models.enumerations import Role
 from app.utils.decorator import require_roles
 from app.utils.audit_helpers import bulk_user_mutation
-from app.security_utils import audit_log
+from app.security_utils import audit_log, coerce_uuid
 
 # Only API blueprint (page route moved to view_route view_bp)
 super_api_bp = Blueprint('super_api_bp', __name__)
@@ -445,7 +445,7 @@ def super_update_user_roles(uid):
         rv = (r or '').strip().lower()
         if rv in valid_roles:
             clean.append(rv)
-    user = User.query.get(uid)
+    user = db.session.get(User, coerce_uuid(uid))
     if not user:
         return jsonify({'error': 'not_found'}), 404
     # Remove existing
@@ -464,7 +464,7 @@ def super_update_user_roles(uid):
 @jwt_required()
 @require_roles(Role.SUPERADMIN.value)
 def super_lock_user(uid):
-    user = User.query.get(uid)
+    user = db.session.get(User, coerce_uuid(uid))
     if not user:
         return jsonify({'error': 'not_found'}), 404
     user.lock_account()
@@ -480,7 +480,7 @@ def super_lock_user(uid):
 @jwt_required()
 @require_roles(Role.SUPERADMIN.value)
 def super_unlock_user(uid):
-    user = User.query.get(uid)
+    user = db.session.get(User, coerce_uuid(uid))
     if not user:
         return jsonify({'error': 'not_found'}), 404
     user.unlock_account()
@@ -496,7 +496,7 @@ def super_unlock_user(uid):
 @jwt_required()
 @require_roles(Role.SUPERADMIN.value)
 def super_activate_user(uid):
-    user = User.query.get(uid)
+    user = db.session.get(User, coerce_uuid(uid))
     if not user:
         return jsonify({'error': 'not_found'}), 404
     user.is_active = True
@@ -512,7 +512,8 @@ def super_activate_user(uid):
 @jwt_required()
 @require_roles(Role.SUPERADMIN.value)
 def super_deactivate_user(uid):
-    user = User.query.get(uid)
+    from app.security_utils import coerce_uuid
+    user = db.session.get(User, coerce_uuid(uid))
     if not user:
         return jsonify({'error': 'not_found'}), 404
     user.is_active = False

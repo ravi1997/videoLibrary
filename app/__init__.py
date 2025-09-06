@@ -6,6 +6,7 @@ from logging.handlers import RotatingFileHandler
 import os
 from flask_compress import Compress
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.tasks import start_hls_worker
 
@@ -53,6 +54,15 @@ def create_app(config_class=Config):
 
     configure_logging(app)
     app.logger.info("Using config: %s", config_class.__name__)
+
+    # Optional proxy fix: enable when running behind a trusted proxy by setting PROXY_FIX_NUM
+    try:
+        num_proxies = int(os.environ.get('PROXY_FIX_NUM', '0'))
+    except Exception:
+        num_proxies = 0
+    if num_proxies > 0:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=num_proxies, x_proto=num_proxies, x_host=num_proxies, x_port=num_proxies, x_prefix=num_proxies)
+        app.logger.info("ProxyFix enabled for %d proxies", num_proxies)
     
     db.init_app(app)
     migrate.init_app(app, db)
@@ -131,7 +141,9 @@ def create_app(config_class=Config):
                 return
             # Lazy import to avoid circular
             from app.models.User import User as U
-            user = U.query.get(uid)
+            from app.extensions import db as _db
+            from app.security_utils import coerce_uuid
+            user = _db.session.get(U, coerce_uuid(uid))
             if user and user.require_password_change:
                 return jsonify({'error':'password_change_required'}), 403
         except Exception:
@@ -307,6 +319,9 @@ def create_app(config_class=Config):
     @event.listens_for(db.session.__class__, "before_commit")
     def _ensure_superadmin(session):  # pragma: no cover (simple guard)
         try:
+            # Don't interfere with unit tests or bootstrap phases
+            if app.config.get('TESTING'):
+                return
             # Count current SUPERADMIN role rows (pending state already flushed)
             remaining = session.query(UserRole).filter(UserRole.role == Role.SUPERADMIN).count()
             if remaining == 0:

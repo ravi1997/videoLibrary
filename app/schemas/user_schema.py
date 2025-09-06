@@ -41,9 +41,12 @@ class UserSchema(Schema):
 
     @post_load
     def make_user(self, data, **kwargs):
+        # Do not hash password here to avoid bypassing policy and double-hashing.
+        # Route logic should call User.set_password() which enforces strength
+        # and updates password metadata. We drop the plain password from the
+        # deserialized payload so it isn't passed into the model constructor.
         if 'password' in data:
-            salt = bcrypt.gensalt()
-            data['password_hash'] = bcrypt.hashpw(data.pop('password').encode(), salt).decode()
+            data.pop('password', None)
         user = User(**data)
         return user
 
