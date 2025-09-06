@@ -96,6 +96,19 @@
 
         // 3) Wire meta toggle and load data
         wireMetaToggle();
+        // 3a) Show Edit button for uploader/admin/superadmin
+        try {
+            const raw = localStorage.getItem('user');
+            const u = raw ? JSON.parse(raw) : null;
+            const roles = (u?.roles || []).map(r => String(r).toLowerCase().replace(/^role[._-]/, ''));
+            const isSuper = roles.includes('superadmin');
+            const isUploader = roles.includes('uploader') || roles.includes('admin') || isSuper;
+            const edit = document.getElementById('editBtn');
+            if (isUploader && edit && dom.videoId) {
+                edit.href = `/video/${encodeURIComponent(dom.videoId)}/edit`;
+                edit.classList.remove('hidden');
+            }
+        } catch { /* ignore */ }
         const [meta, next, recs] = await Promise.allSettled([
             safeGet(CFG.META),
             safeGet(CFG.NEXT),
@@ -368,7 +381,11 @@
         const extra = [];
         if (m.category) extra.push(`<strong>Category: </strong> ${escapeHtml(m.category.name)}`);
         if (m.tags?.length) {
-            const tagChips = m.tags.map(t => `<span class="chip inline-block">${escapeHtml(t.name || t)}</span>`).join(" ");
+            const tagChips = m.tags.map(t => {
+                const name = String(t.name || t || '').trim();
+                const href = name ? `/tag/${encodeURIComponent(name)}` : '#';
+                return `<a class="chip inline-block no-underline hover:shadow" href="${href}">${escapeHtml(name)}</a>`;
+            }).join(" ");
             extra.push(`<div><strong>Tags: </strong> ${tagChips}</div>`);
         }
         if (m.description) extra.push(`<strong>Description: </strong> ${escapeHtml(m.description)}`);
@@ -455,7 +472,10 @@
     function compactMeta(v) { const views = v.views ?? v.view_count; const age = v.age || v.published_at || v.date; const parts = []; if (views != null) parts.push(`${formatCompact(views)} views`); if (age) parts.push(formatAge(age)); return parts.join(" • "); }
     function formatCompact(n) { const x = Number(n) || 0; if (x >= 1_000_000) return (x / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M"; if (x >= 1_000) return (x / 1_000).toFixed(1).replace(/\.0$/, "") + "K"; return String(x); }
     function formatAge(dateish) { try { const d = new Date(dateish); const diff = Math.max(0, (Date.now() - d.getTime()) / 1000); const day = 86400, week = day * 7, month = day * 30, year = day * 365; if (diff < day) return "today"; if (diff < week) return `${Math.floor(diff / day)} d ago`; if (diff < month) return `${Math.floor(diff / week)} w ago`; if (diff < year) return `${Math.floor(diff / month)} mo ago`; return `${Math.floor(diff / year)} y ago`; } catch { return ""; } }
-    function placeholderThumb(seed) { const s = encodeURIComponent(String(seed || Math.random())); return `https://picsum.photos/seed/vid${s}/480/270`; }
+    function placeholderThumb(seed) {
+        const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 9'><rect width='16' height='9' fill='%23ddd'/><path d='M0 9 L5.5 4.5 L9 7 L12 5 L16 9 Z' fill='%23bbb'/></svg>`;
+        return `data:image/svg+xml;base64,${btoa(svg)}`;
+    }
     function escapeHtml(s) { return String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;"); }
     function escapeAttr(s) { return String(s).replaceAll('"', "&quot;"); }
     function seekRelative(delta) { try { const t = player.currentTime() || 0; player.currentTime(Math.max(0, t + delta)); } catch { } }

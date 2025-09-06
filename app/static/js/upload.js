@@ -116,6 +116,20 @@
             });
         }
 
+        // Populate suggestions for edit or upload flows
+        populateDatalist(dom.categoryList, CFG.API_CATEGORIES, mockCategories());
+        populateDatalist(dom.tagList, CFG.API_TAGS, mockTags());
+        populateDatalist(dom.surgeonList, CFG.API_SURGEONS, mockSurgeons());
+
+        // Edit flow: if a page provides an existing video id, prefill metadata
+        const vidNode = document.getElementById('video-id');
+        const existingId = (vidNode?.textContent || '').trim();
+        if (existingId) {
+            state.videoId = existingId;
+            if (dom.metaForm) dom.metaForm.classList.remove('hidden');
+            loadExistingMetadata(existingId);
+        }
+
         // Tag input (comma or Enter to add)
         if (dom.tagInput) {
             dom.tagInput.addEventListener("keydown", (e) => {

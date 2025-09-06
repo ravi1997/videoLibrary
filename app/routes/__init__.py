@@ -2,16 +2,16 @@
 
 This file only wires together the various blueprints. The actual route
 implementations for administrator and superadministrator functionality now
-live in dedicated modules:
-    * app.routes.admin_route -> admin_link_bp
-    * app.routes.superadmin_route -> super_bp
+live in versioned modules:
+    * app.routes.v1.admin_route -> admin_api_bp
+    * app.routes.v1.superadmin_route -> super_api_bp
 """
 
 from app.routes.v1.auth_route import auth_bp
 from app.routes.v1.view_route import view_bp
 from app.routes.v1.user_route import user_bp
 from app.routes.v1.video_route import video_bp
-from app.routes.superadmin_route import super_api_bp  # consolidated (legacy v1 removed)
+from app.routes.v1.superadmin_route import super_api_bp  # use versioned super routes
 from app.routes.v1.admin_route import admin_api_bp
 
 def register_blueprints(app):

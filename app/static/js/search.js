@@ -33,7 +33,10 @@
 
     const state = {
         q: urlQ,
-        sort: localStorage.getItem(CFG.LS.SORT) || "relevance", // relevance|recent|most_viewed
+        sort: (function(){
+            const v = localStorage.getItem(CFG.LS.SORT) || "relevance";
+            return v === 'uploaded' ? 'recent' : v; // alias safeguard
+        })(), // relevance|recent|most_viewed
         view: localStorage.getItem(CFG.LS.VIEW) || "grid",       // grid|list
         page: +(localStorage.getItem(CFG.LS.PAGE) || 1),
         pageSize: CFG.PAGE_SIZE,
@@ -100,7 +103,7 @@
             btn.addEventListener("click", () => {
                 const v = btn.getAttribute("data-sort");
                 if (!v) return;
-                state.sort = v;
+                state.sort = (v === 'uploaded') ? 'recent' : v; // alias 'uploaded' => 'recent'
                 localStorage.setItem(CFG.LS.SORT, v);
                 updateActiveSort();
                 state.page = 1;
@@ -754,13 +757,15 @@
     }
 
     function placeholderThumb(id) {
-        const n = (Math.abs(hashCode(String(id || Date.now()))) % 10) + 1;
-        return `https://picsum.photos/seed/search${n}/640/360`;
+        const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 9'><rect width='16' height='9' fill='%23ddd'/><path d='M0 9 L5.5 4.5 L9 7 L12 5 L16 9 Z' fill='%23bbb'/></svg>`;
+        return `data:image/svg+xml;base64,${btoa(svg)}`;
     }
 
     function placeholderAvatar(seed) {
-        const s = encodeURIComponent(String(seed || "u"));
-        return `https://api.dicebear.com/7.x/identicon/svg?seed=${s}`;
+        const s = String(seed || 'u');
+        const color = '#'+((Math.abs(hashCode(s))>>8)&0xFFFFFF).toString(16).padStart(6,'0');
+        const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' fill='%23f2f2f2'/><circle cx='32' cy='24' r='14' fill='${color}'/><rect x='14' y='40' width='36' height='18' rx='9' fill='${color}'/></svg>`;
+        return `data:image/svg+xml;base64,${btoa(svg)}`;
     }
 
     function strOrEmpty(v) {
@@ -785,18 +790,43 @@
     }
 
     function computeDateRange(span) {
-        const now = new Date();
-        const to = now.toISOString().slice(0, 10);
-        let from = "";
-        const map = { "24h": 1, "7d": 7, "30d": 30, "365d": 365 , "366d": 366 };
-        if (map[span]!=366) {
-            const d = new Date(now.getTime() - map[span] * 86400000);
-            from = d.toISOString().slice(0, 10);
+        // Derive date-only ranges to match backend's date filters.
+        // Semantics (date-only, inclusive of whole days):
+        //  - 24h:        from=today,         to=today
+        //  - 7d:         from=today-7 days,  to=today-1 day
+        //  - 30d:        from=today-30 days, to=today-7 days
+        //  - 365d (1y):  from=today-365 days,to=today-30 days
+        //  - 366d:       from="",            to=today-365 days (older than 1 year)
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        const fmt = (d) => new Date(d).toISOString().slice(0,10);
+        const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+
+        if (span === '24h') {
+            const from = fmt(today);
+            const to = fmt(today);
+            return { from, to };
         }
-        else {
-            from = "";
+        if (span === '7d') {
+            const from = fmt(addDays(today, -7));
+            const to = fmt(addDays(today, -1));
+            return { from, to };
         }
-        return { from, to };
+        if (span === '30d') {
+            const from = fmt(addDays(today, -30));
+            const to = fmt(addDays(today, -7));
+            return { from, to };
+        }
+        if (span === '365d') {
+            const from = fmt(addDays(today, -365));
+            const to = fmt(addDays(today, -30));
+            return { from, to };
+        }
+        if (span === '366d') {
+            const to = fmt(addDays(today, -365));
+            return { from: '', to };
+        }
+        return { from: '', to: '' };
     }
 
     function sanitizeTag(s) {

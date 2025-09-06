@@ -37,6 +37,8 @@
         node.querySelector('.created_at').textContent = u.created_at ? new Date(u.created_at).toLocaleString() : '—';
         const verifyBtn = node.querySelector('.verifyBtn');
         verifyBtn.addEventListener('click', () => verifyUser(u.id, verifyBtn));
+        const grantBtn = node.querySelector('.grantUploaderBtn');
+        grantBtn.addEventListener('click', () => grantUploader(u.id, grantBtn));
         const docBtn = node.querySelector('.viewDocBtn');
         docBtn.addEventListener('click', () => viewDocument(u.id, docBtn));
         if(!u.document_submitted){
@@ -79,6 +81,34 @@
       alert('Network error');
       btn.disabled = false;
       btn.textContent = 'Verify';
+    }
+  }
+
+  async function grantUploader(id, btn) {
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = 'Granting...';
+    try {
+      const res = await fetch('/api/v1/auth/grant-uploader', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        credentials: 'include',
+        body: JSON.stringify({ user_id: id })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.msg || 'Failed to grant role');
+        btn.disabled = false; btn.textContent = orig;
+        return;
+      }
+      btn.textContent = 'Granted';
+      btn.classList.add('btn-success');
+      btn.classList.remove('btn-ghost');
+      setTimeout(() => { btn.disabled = false; }, 600);
+    } catch (e) {
+      console.error(e);
+      alert('Network error');
+      btn.disabled = false; btn.textContent = orig;
     }
   }
 

@@ -86,6 +86,15 @@ class Config:
     MAX_CONTENT_LENGTH = MAX_CONTENT_LENGTH_MB * 1024 * 1024
     ID_UPLOAD_MAX_MB = int(os.getenv("ID_UPLOAD_MAX_MB", "10"))
 
+    # Typesense (optional: if configured, search endpoint will use it)
+    TYPESENSE_HOST = os.getenv("TYPESENSE_HOST")
+    TYPESENSE_PORT = os.getenv("TYPESENSE_PORT")
+    TYPESENSE_PROTOCOL = os.getenv("TYPESENSE_PROTOCOL", "http")
+    TYPESENSE_API_KEY = os.getenv("TYPESENSE_API_KEY")
+    TYPESENSE_COLLECTION = os.getenv("TYPESENSE_COLLECTION", "videos")
+    # Comma-separated fields in your Typesense schema to search across
+    TYPESENSE_QUERY_BY = os.getenv("TYPESENSE_QUERY_BY", "title,description,transcript,tags,category")
+
 class DevelopmentConfig(Config):
     DEBUG = True
     SQLALCHEMY_DATABASE_URI = os.getenv("DEVELOPMENT_DATABASE_URI", "sqlite:///dev.db")

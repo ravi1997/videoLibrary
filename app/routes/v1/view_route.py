@@ -3,6 +3,7 @@ from datetime import datetime
 from flask import Blueprint, current_app, render_template, request, jsonify, abort, redirect, url_for
 from app.config import Config
 from app.models.User import User
+from app.models.enumerations import Role
 from app.models.TokenBlocklist import TokenBlocklist
 from app.models.video import Video, Category
 from app.schemas.user_schema import UserSchema
@@ -16,7 +17,12 @@ view_bp = Blueprint('view_bp', __name__)
 
 
 
+ALL_ROLES = tuple(r.value for r in Role)
+
+
 @view_bp.route('/<video_id>')
+@jwt_required()
+@require_roles(*ALL_ROLES)
 def video(video_id: str):
     """Video detail page.
 
@@ -49,6 +55,8 @@ def search_page():
 
 
 @view_bp.route('/upload')
+@jwt_required()
+@require_roles(Role.UPLOADER.value, Role.ADMIN.value, Role.SUPERADMIN.value)
 def upload_page():
     return render_template('upload.html')
 
@@ -75,22 +83,43 @@ def category_page(category_name: str):
 
     return render_template('category.html', category=category.name)
 
+@view_bp.route('/tag/<tag_name>')
+def tag_page(tag_name: str):
+    """Render tag page. The API endpoints require auth, but the page can render standalone."""
+    # We don't validate existence here; the client will render based on API results
+    return render_template('tag.html')
+
 @view_bp.route('/favourites')
+@jwt_required()
+@require_roles(*ALL_ROLES)
 def favourites_page():
     return render_template('favourites.html')
 
 @view_bp.route('/profile')
+@jwt_required()
+@require_roles(*ALL_ROLES)
 def profile_page():
     return render_template('profile.html')
 
 
 @view_bp.route('/settings')
+@jwt_required()
+@require_roles(*ALL_ROLES)
 def settings_page():
     return render_template('settings.html')
 
 @view_bp.route('/history')
+@jwt_required()
+@require_roles(*ALL_ROLES)
 def history_page():
     return render_template('history.html')
+
+# Video edit page (uploader/admin/superadmin)
+@view_bp.route('/video/<video_id>/edit')
+@jwt_required()
+@require_roles(Role.UPLOADER.value, Role.ADMIN.value, Role.SUPERADMIN.value)
+def video_edit_page(video_id):
+    return render_template('video_edit.html', video_id=video_id)
 
 @view_bp.route('/change-password')
 def change_password_page():
@@ -114,27 +143,28 @@ def privacy_page():
 
 @view_bp.route('/admin/unverified')
 @jwt_required()
-@require_roles('admin','superadmin')
+@require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def admin_unverified_page():  # injected by decorator
     return render_template('admin_unverified.html')
 
 @view_bp.route('/admin/admin-dashboard')  # legacy path retained for now
 @view_bp.route('/admin/dashboard')        # canonical path
 @jwt_required()
-@require_roles('admin','superadmin')
+@require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def admin_dashboard_page():
     return render_template('admin_dashboard.html')
 
 
 @view_bp.route('/linked-video/<int:surgeon_id>')
 @jwt_required()
+@require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def linked_videos_page_alias_surgeon(surgeon_id):
     """Alias route so frontend can link to /linked-video/<surgeon_id>."""
     return render_template('linked_videos.html', surgeon_id=surgeon_id, user_id=None)
 
 @view_bp.route('/superadmin/overview')
 @jwt_required()
-@require_roles('superadmin')
+@require_roles(Role.SUPERADMIN.value)
 def superadmin_overview_page():
     """Legacy/alternate path for superadmin overview.
 
@@ -196,7 +226,7 @@ def superadmin_overview_page():
 # Canonical superadmin overview page (moved from superadmin_route)
 @view_bp.route('/admin/super/overview')
 @jwt_required()
-@require_roles('superadmin')
+@require_roles(Role.SUPERADMIN.value)
 def super_overview_full():
     from app.routes.v1.superadmin_route import build_super_overview_context
     ctx = build_super_overview_context()
@@ -204,7 +234,7 @@ def super_overview_full():
 
 @view_bp.route('/admin/super/audit')
 @jwt_required()
-@require_roles('superadmin')
+@require_roles(Role.SUPERADMIN.value)
 def super_audit_page():
     """Superadmin audit log exploration page.
 
@@ -218,13 +248,13 @@ def super_audit_page():
 
 @view_bp.route('/admin/link-surgeons')
 @jwt_required()
-@require_roles('admin','superadmin')
+@require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def link_surgeons_page():
     return render_template('link_surgeons.html')
 
 @view_bp.route('/admin/linked-videos')
 @jwt_required()
-@require_roles('admin','superadmin')
+@require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def linked_videos_page():
     surgeon_id = request.args.get('surgeon_id')
     user_id = request.args.get('user_id')
@@ -232,14 +262,14 @@ def linked_videos_page():
 
 @view_bp.route('/admin/super/users')
 @jwt_required()
-@require_roles('superadmin')
+@require_roles(Role.SUPERADMIN.value)
 def superadmin_users_management_page():
     """Superadmin user management SPA-like page (fetches data via /api/v1/super/users)."""
     return render_template('super_users.html')
 
 @view_bp.route('/admin/super/users/<user_id>/activity')
 @jwt_required()
-@require_roles('superadmin')
+@require_roles(Role.SUPERADMIN.value)
 def superadmin_user_activity_page(user_id):
     # Template will fetch data via API; only pass id
     return render_template('user_activity.html', user_id=user_id)

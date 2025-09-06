@@ -1,0 +1,38 @@
+{% extends "layout.html" %}
+{% block title %}Edit Video · RPC Surgical Video Library{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+  <h1 class="text-2xl font-bold mb-4">✏️ Edit Video Metadata</h1>
+
+  <div class="card p-4 space-y-4">
+    <div id="metaForm" class="space-y-4">
+      <input id="title" type="text" placeholder="Title" class="w-full input" />
+      <textarea id="description" rows="3" placeholder="Description" class="w-full input"></textarea>
+
+      <input list="categoryList" id="category" placeholder="Category" class="w-full input" />
+      <datalist id="categoryList"></datalist>
+
+      <div id="tagContainer" class="flex flex-wrap gap-2 mb-2"></div>
+      <input list="tagList" id="tagInput" placeholder="Type tag and press comma" class="w-full input" />
+      <datalist id="tagList"></datalist>
+
+      <div id="surgeonContainer" class="flex flex-wrap gap-2 mb-2"></div>
+      <input list="surgeonList" id="surgeonInput" placeholder="Type surgeon and press comma" class="w-full input" />
+      <datalist id="surgeonList"></datalist>
+
+      <div class="flex items-center gap-2">
+        <button id="saveMetaBtn" class="btn-success">💾 Save Metadata</button>
+        <a id="cancelBtn" href="#" class="btn btn-ghost">Cancel</a>
+        <span id="statusMsg" class="muted text-sm"></span>
+      </div>
+    </div>
+  </div>
+
+  <div id="video-id" class="hidden">{{ video_id }}</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/upload.js') }}"></script>
+{% endblock %}

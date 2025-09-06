@@ -42,6 +42,9 @@ def register():
     current_app.logger.info("Received registration data: %s", {k: v for k, v in data.items() if k != "password"})
     # Only allow non-privileged roles on self-registration to prevent escalation
     roles_in = [r for r in data.get("roles", []) if r in {Role.GENERAL.value, Role.USER.value, Role.VIEWER.value}]
+    # Ensure every registered user has at least the viewer role
+    if Role.VIEWER.value not in roles_in:
+        roles_in.append(Role.VIEWER.value)
     data_wo_roles = dict(data)
     data_wo_roles.pop("roles", None)
     try:
@@ -69,7 +72,9 @@ def register():
             return jsonify(message=str(pe)), 400
         current_app.logger.info(f"🔒 Password set for user: {user.username}")
 
-        for role in roles_in:
+        # Deduplicate while preserving order
+        seen = set()
+        for role in [r for r in roles_in if not (r in seen or seen.add(r))]:
             if role not in [r.value for r in Role]:
                 current_app.logger.warning(f"❌ Invalid role: {role}")
                 return jsonify(message=f"Invalid role: {role}"), 400
@@ -893,6 +898,42 @@ def discard_user():
         return jsonify({'msg': 'internal error'}), 500
     audit_log('discard_user_success', target_user_id=target_id)
     return jsonify({'msg': 'discarded'}), 200
+
+# Grant uploader role to a user (admin-only convenience endpoint)
+@auth_bp.post('/grant-uploader')
+@require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
+def grant_uploader():
+    """Grant the 'uploader' role to a specific user.
+    Body: {"user_id": "<uuid>"}
+    Safe to call multiple times (idempotent).
+    """
+    try:
+        data = request.get_json(force=True)
+    except Exception:
+        data = request.form or {}
+    target_id = (data.get('user_id') or '').strip()
+    if not target_id:
+        audit_log('grant_uploader_failed', detail='missing_user_id')
+        return jsonify({'msg': 'user_id required'}), 400
+    target = db.session.get(User, target_id)
+    if not target:
+        audit_log('grant_uploader_failed', target_user_id=target_id, detail='user_not_found')
+        return jsonify({'msg': 'user not found'}), 404
+    # If already has role, return ok
+    if any(ur.role == Role.UPLOADER for ur in target.role_associations):
+        audit_log('grant_uploader_skipped', target_user_id=target_id, detail='already_uploader')
+        return jsonify({'msg': 'already uploader', 'roles': [r.value for r in target.roles]}), 200
+    # Append new role association
+    try:
+        target.role_associations.append(UserRole(user_id=target.id, role=Role.UPLOADER))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('grant_uploader: DB commit failed')
+        audit_log('grant_uploader_failed', target_user_id=target_id, detail='db_commit_failed')
+        return jsonify({'msg': 'internal error'}), 500
+    audit_log('grant_uploader_success', target_user_id=target_id)
+    return jsonify({'msg': 'granted', 'roles': [r.value for r in target.roles]}), 200
 
 @auth_bp.post('/bulk/verify-users')
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)

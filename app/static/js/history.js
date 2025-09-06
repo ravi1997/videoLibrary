@@ -193,7 +193,12 @@
     const href = (item.url || `/${encodeURIComponent(item.id || "")}`) + (seconds ? `?t=${seconds}` : "");
     window.location.href = href;
   }
-  function thumb(v) { return v.thumbnail || (v.id ? `/api/v1/video/thumbnails/${encodeURIComponent(v.id)}.jpg` : `https://picsum.photos/seed/h${Math.floor(Math.random() * 10)}/640/360`); }
+  function thumb(v) {
+    if (v.thumbnail) return v.thumbnail;
+    if (v.id) return `/api/v1/video/thumbnails/${encodeURIComponent(v.id)}.jpg`;
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 9'><rect width='16' height='9' fill='%23ddd'/><path d='M0 9 L5.5 4.5 L9 7 L12 5 L16 9 Z' fill='%23bbb'/></svg>`;
+    return `data:image/svg+xml;base64,${btoa(svg)}`;
+  }
   function fmtDuration(sec) { const s = Number.isFinite(+sec) ? Math.max(0, Math.round(+sec)) : 0; const m = Math.floor(s / 60), r = s % 60; return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`; }
   function fmtHMS(sec) { const s = Math.max(0, Math.round(+sec || 0)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60; return h ? `${h}h ${m}m` : `${m}m ${r}s`; }
   function progress(v) { const pos = Number(v.position); const dur = Number(v.duration); if (!Number.isFinite(pos) || !Number.isFinite(dur) || dur <= 0) return 0; return Math.min(1, Math.max(0, pos / dur)); }

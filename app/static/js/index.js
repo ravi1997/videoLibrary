@@ -736,13 +736,15 @@
     }
 
     function placeholderThumb(id) {
-        const n = (Math.abs(hashCode(String(id || Date.now()))) % 10) + 1;
-        return `https://picsum.photos/seed/vid${n}/640/360`;
+        const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 9'><rect width='16' height='9' fill='%23ddd'/><path d='M0 9 L5.5 4.5 L9 7 L12 5 L16 9 Z' fill='%23bbb'/></svg>`;
+        return `data:image/svg+xml;base64,${btoa(svg)}`;
     }
 
     function placeholderAvatar(seed) {
-        const s = encodeURIComponent(String(seed || 'u'));
-        return `https://api.dicebear.com/7.x/identicon/svg?seed=${s}`;
+        const s = String(seed || 'u');
+        const color = '#'+((Math.abs(hashCode(s))>>8)&0xFFFFFF).toString(16).padStart(6,'0');
+        const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' fill='%23f2f2f2'/><circle cx='32' cy='24' r='14' fill='${color}'/><rect x='14' y='40' width='36' height='18' rx='9' fill='${color}'/></svg>`;
+        return `data:image/svg+xml;base64,${btoa(svg)}`;
     }
 
     function hashCode(str) {

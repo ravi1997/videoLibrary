@@ -74,7 +74,11 @@
     a.querySelector('button[data-unf]')?.addEventListener('click',onUnfavouriteClick); return a; }
   async function onUnfavouriteClick(e){ e.preventDefault(); e.stopPropagation(); const id=e.currentTarget?.getAttribute('data-unf'); if(!id)return; const prev=state.items.slice(); state.items=state.items.filter(v=>String(v.id)!==String(id)); state.total=Math.max(0,state.total-1); render(state.items); try{ const res=await fetch(API.remove(id),{method:'DELETE',headers:{'Accept':'application/json','Authorization':`Bearer ${localStorage.getItem('token')||''}`}}); if(!res.ok) throw new Error(res.status); refresh(); }catch(err){ console.error('Failed unfavourite',err); state.items=prev; state.total=prev.length; render(state.items); alert('Could not remove from favourites. Please try again.'); } }
   function disable(el,on){ if(!el)return; el.disabled=!!on; el.style.opacity=on?0.6:1; el.style.pointerEvents=on?'none':'auto'; }
-  function thumb(v){ return (v.uuid?`/api/v1/video/thumbnails/${encodeURIComponent(v.uuid)}.jpg`:`https://picsum.photos/seed/fav${Math.floor(Math.random()*10)}/640/360`);} 
+  function thumb(v){
+    if (v.uuid) return `/api/v1/video/thumbnails/${encodeURIComponent(v.uuid)}.jpg`;
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 9'><rect width='16' height='9' fill='%23ddd'/><path d='M0 9 L5.5 4.5 L9 7 L12 5 L16 9 Z' fill='%23bbb'/></svg>`;
+    return `data:image/svg+xml;base64,${btoa(svg)}`;
+  }
   function fmtDuration(sec){ const s=Number.isFinite(+sec)?Math.max(0,Math.round(+sec)):0; const m=Math.floor(s/60),r=s%60; return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`; }
   function meta(v){ const parts=[]; if(v.views!=null) parts.push(`${formatCompact(v.views)} views`); if(v.published_at) parts.push(new Date(v.published_at).toLocaleDateString()); return parts.join(' • ');} 
   function formatCompact(n){ const x=Number(n)||0; if(x>=1_000_000) return (x/1_000_000).toFixed(1).replace(/\.0$/,'')+'M'; if(x>=1_000) return (x/1_000).toFixed(1).replace(/\.0$/,'')+'K'; return String(x);} 

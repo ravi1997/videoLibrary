@@ -54,7 +54,7 @@ class VideoMiniSchema(Schema):
 
     @post_dump
     def add_thumbnail_url(self, data, **kwargs):
-        data["thumbnail"] = f"/thumbnails/{data['uuid']}.jpg"
+        data["thumbnail"] = f"/api/v1/video/thumbnails/{data['uuid']}.jpg"
         return data
 
 

@@ -18,7 +18,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from flask import Blueprint, Response, current_app, jsonify, request, send_from_directory, abort
 from flask_jwt_extended import jwt_required
 from marshmallow import EXCLUDE
-from sqlalchemy import and_, case, desc, or_, func
+from sqlalchemy import and_, case, desc, or_, func, literal, literal_column
+import re
 
 from app.extensions import db
 from app.models.video import Favourite, VideoProgress, VideoViewEvent
@@ -1381,9 +1382,9 @@ def favourites_list():
     uid = coerce_uuid(user_id)
     q = Video.query.join(Video.favourites).filter(Favourite.user_id == uid)
     
-    sort = request.args.get("sort", "recent")  # "views" or "recent"
+    sort = request.args.get("sort", "recent")  # "most_viewed"|"recent"
     page = request.args.get("page", default=1, type=int)
-    per_page = request.args.get("per_page", default=12, type=int)
+    per_page = request.args.get("page_size", type=int) or request.args.get("per_page", default=12, type=int)
 
     if sort == "recent":
         q = q.order_by(Video.created_at.desc())
@@ -1458,6 +1459,14 @@ def remove_favourite(video_id):
 @video_bp.route("/search", methods=["GET"])
 @jwt_required()
 def search_videos():
+    """
+    Full-text like search across Video fields without external services.
+
+    Strategy:
+      - If using PostgreSQL, leverage to_tsvector + websearch_to_tsquery with ranking.
+      - Otherwise compute a heuristic score using ILIKE on multiple fields.
+      - Expand the query by lightweight synonyms to improve recall.
+    """
     q = request.args.get("q", "").strip()
     category_filter = request.args.get("category")
     min_duration = request.args.get("duration_min", type=int)
@@ -1474,6 +1483,53 @@ def search_videos():
     # TODO: dynamically fetch from auth/session
     user_id = get_jwt_identity()
 
+    # --- Helper: lightweight synonyms expansion ---
+    def expand_terms(text: str) -> list[str]:
+        base = set()
+        for tok in re.split(r"[^\w]+", text or ""):
+            t = (tok or "").strip().lower()
+            if len(t) >= 2:
+                base.add(t)
+        if not base:
+            return []
+        SYN = {
+            'eye': ['ocular','ophthalmic','optic'],
+            'surgery': ['operation','procedure','surgical'],
+            'video': ['clip','recording','footage'],
+            'retina': ['retinal','vitreoretinal'],
+            'cataract': ['lens','phaco','phacoemulsification'],
+            'glaucoma': ['iop','intraocular','pressure'],
+            'cornea': ['kerato','keratoplasty'],
+            'children': ['pediatric','paediatric','kids','child'],
+            'tumor': ['neoplasm','mass','lesion'],
+            'testing': ['test','evaluation','assessment','exam'],
+            'laser': ['photocoagulation','yag'],
+            'training': ['teaching','tutorial','learning','education'],
+            'doctor': ['physician','surgeon','clinician'],
+            'patient': ['case','subject'],
+        }
+        out = set(base)
+        for b in list(base):
+            for k, vals in SYN.items():
+                if b == k or b in vals:
+                    out.add(k)
+                    for v in vals:
+                        out.add(v)
+        # naive morphology: plural/singular, -ing/-ed forms
+        for b in list(out):
+            if b.endswith('ing') and len(b) > 4:
+                out.add(b[:-3])
+            if b.endswith('ed') and len(b) > 3:
+                out.add(b[:-2])
+            if b.endswith('s') and len(b) > 2:
+                out.add(b[:-1])
+        return list(out)
+
+    # Extract exact phrases in quotes for boosting
+    def extract_phrases(text: str) -> list[str]:
+        return [m.group(1).strip() for m in re.finditer(r'"([^"]+)"', text or '') if m.group(1).strip()]
+
+    # --- SQL search (with Postgres FTS when available) ---
     # Start base query
     query = (
         db.session.query(Video, VideoProgress.position)
@@ -1486,22 +1542,101 @@ def search_videos():
         ))
     )
 
-    # Keyword search
+    # Keyword search (FTS on Postgres; otherwise weighted ILIKE with synonyms)
+    terms = expand_terms(q)
+    phrases = extract_phrases(q)
+    driver = str(db.engine.url.drivername)
+    use_pg = 'postgresql' in driver
+    sim_available = False
     if q:
-        query = query.filter(
-            or_(
-                Video.title.ilike(f"%{q}%"),
-                Video.description.ilike(f"%{q}%"),
-                Video.transcript.ilike(f"%{q}%"),
-                Tag.name.ilike(f"%{q}%"),
-                Category.name.ilike(f"%{q}%"),
-                Surgeon.name.ilike(f"%{q}%"),
-            )
-        )
+        if use_pg:
+            # Use stored weighted search_vec (already includes related fields via triggers)
+            base_vec = literal_column('videos.search_vec')
+
+            # Natural query parsing + unaccent; OR synonyms and phrases
+            q_parts = [q] + [t for t in terms if t and t.lower() != (q or '').lower()] + [f'"{p}"' for p in phrases]
+            tsquery = func.websearch_to_tsquery('simple', func.unaccent(' OR '.join(q_parts)))
+            rank = func.ts_rank_cd(base_vec, tsquery)
+            query = query.filter(base_vec.op('@@')(tsquery))
+            # Attach rank for ordering later
+            boost = literal(0.0)
+            # small boosts for title/description contains and startswith
+            boost = boost + case((Video.title.ilike(f"%{q}%"), 0.3), else_=0)
+            boost = boost + case((Video.title.ilike(f"{q}%"), 0.2), else_=0)
+            boost = boost + case((Video.description.ilike(f"%{q}%"), 0.1), else_=0)
+            # Phrase boosts
+            for ph in phrases:
+                boost = boost + case((Video.title.ilike(f"%{ph}%"), 0.4), else_=0)
+                boost = boost + case((Video.description.ilike(f"%{ph}%"), 0.2), else_=0)
+            # Tag/category boosts
+            if category_filter:
+                boost = boost + case((func.lower(Category.name) == func.lower(category_filter), 0.2), else_=0)
+            if tags:
+                boost = boost + case((func.lower(Tag.name).in_([t.lower() for t in tags]), 0.2), else_=0)
+            query = query.add_columns((rank + boost).label('rank'))
+        else:
+            # Weighted OR matches with synonyms
+            ilikes = []
+            for t in terms or [q]:
+                pat = f"%{t}%"
+                ilikes.append(Video.title.ilike(pat))
+                ilikes.append(Video.description.ilike(pat))
+                ilikes.append(Video.transcript.ilike(pat))
+                ilikes.append(Tag.name.ilike(pat))
+                ilikes.append(Category.name.ilike(pat))
+                ilikes.append(Surgeon.name.ilike(pat))
+            query = query.filter(or_(*ilikes))
+            # Compute heuristic score
+            def score_for(token):
+                p = f"%{token}%"
+                return (
+                    case((Video.title.ilike(p), 5), else_=0) +
+                    case((Video.description.ilike(p), 3), else_=0) +
+                    case((Video.transcript.ilike(p), 2), else_=0) +
+                    case((Category.name.ilike(p), 2), else_=0) +
+                    case((Tag.name.ilike(p), 3), else_=0) +
+                    case((Surgeon.name.ilike(p), 2), else_=0)
+                )
+            score_expr = literal(0)
+            for t in terms or [q]:
+                score_expr = score_expr + score_for(t)
+            # Boost exact phrases
+            for ph in phrases:
+                p = f"%{ph}%"
+                score_expr = score_expr + case((Video.title.ilike(p), 2), else_=0) + case((Video.description.ilike(p), 1), else_=0)
+            # Light view boost
+            score_expr = score_expr + func.least(func.coalesce(Video.views, 0), 1000) / 1000.0
+            # Tag/category boosts when filters present
+            if category_filter:
+                score_expr = score_expr + case((func.lower(Category.name) == func.lower(category_filter), 1), else_=0)
+            if tags:
+                score_expr = score_expr + case((func.lower(Tag.name).in_([t.lower() for t in tags]), 1), else_=0)
+            query = query.add_columns(score_expr.label('rank'))
+
+            # Optional fuzzy ordering for Postgres (pg_trgm) — best-effort
+            try:
+                if q and len(q) >= 3:
+                    sim = func.greatest(
+                        func.similarity(func.coalesce(Video.title, ''), q),
+                        func.similarity(func.coalesce(Video.description, ''), q),
+                        func.similarity(func.coalesce(Video.transcript, ''), q)
+                    )
+                    query = query.add_columns(sim.label('sim'))
+                    sim_available = True
+            except Exception:
+                sim_available = False
 
     # Filters
     if category_filter:
-        query = query.filter(Category.name == category_filter)
+        # Prefer exact (case-insensitive) match when category exists; otherwise fallback to substring match
+        cat = (category_filter or '').strip()
+        if cat:
+            exact = db.session.query(Category.id).filter(func.lower(Category.name) == func.lower(cat)).first()
+            if exact:
+                query = query.filter(func.lower(Category.name) == func.lower(cat))
+            else:
+                # Graceful: treat provided category as a free-text hint
+                query = query.filter(Category.name.ilike(f"%{cat}%"))
 
     if min_duration is not None:
         query = query.filter(Video.duration >= min_duration*60)
@@ -1509,18 +1644,36 @@ def search_videos():
         query = query.filter(Video.duration <= max_duration*60)
 
     if date_from:
-        query = query.filter(Video.created_at >= datetime.fromisoformat(date_from))
+        try:
+            query = query.filter(Video.created_at >= datetime.fromisoformat(date_from))
+        except Exception:
+            pass
     if date_to:
-        query = query.filter(Video.created_at <= datetime.fromisoformat(date_to))
+        # Make date_to inclusive for the whole day by adding 1 day and using '<'
+        try:
+            dt_to = datetime.fromisoformat(date_to)
+            query = query.filter(Video.created_at < (dt_to + timedelta(days=1)))
+        except Exception:
+            pass
 
     if tags:
-        query = query.filter(Tag.name.in_(tags))
+        # Case-insensitive tag match
+        lowered = [t.lower() for t in tags if t]
+        if lowered:
+            query = query.filter(func.lower(Tag.name).in_(lowered))
 
     # Sorting
     if sort == "most_viewed":
         query = query.order_by(Video.views.desc())
     elif sort == "recent":
         query = query.order_by(Video.created_at.desc())
+    else:
+        # relevance (if rank present), otherwise fallback to recent
+        if use_pg and sim_available:
+            query = query.order_by(desc(literal_column('sim')), desc(literal_column('rank')), Video.created_at.desc())
+        else:
+            # rank is added in both branches; use literal_column for safety
+            query = query.order_by(desc(literal_column('rank')), Video.created_at.desc())
 
 
     query = query.distinct()
@@ -1528,16 +1681,105 @@ def search_videos():
     # Paginate results
     paginated = query.paginate(page=page, per_page=per_page, error_out=False)
 
-    # Serialize results
+    # Serialize results to the format search.js expects (mini object)
+    def _mini(v: Video, pos=None):
+        return {
+            'uuid': v.uuid,
+            'title': v.title,
+            'description': v.description or '',
+            'duration': float(v.duration or 0.0),
+            'views': int(v.views or 0),
+            'category_name': (v.category.name if getattr(v, 'category', None) else ''),
+            'date': (v.created_at.isoformat() if getattr(v, 'created_at', None) else None),
+            'thumbnail': f"/api/v1/video/thumbnails/{v.uuid}.jpg",
+            'url': f"/{v.uuid}",
+            'position': round(pos or 0, 2) if pos is not None else 0,
+        }
+
     items = []
-    for video, position in paginated.items:
-        video_dict = video_schema.dump(video)
-        video_dict["position"] = round(position or 0, 2)
-        items.append(video_dict)
+    for row in paginated.items:
+        try:
+            v = row[0]
+            pos = row[1] if len(row) > 1 else None
+            if isinstance(v, Video):
+                items.append(_mini(v, pos))
+                continue
+        except Exception:
+            pass
+        if isinstance(row, Video):
+            items.append(_mini(row))
 
     payload = {"items": items, "page": paginated.page, "per_page": paginated.per_page, "pages": paginated.pages, "total": paginated.total}
+
+    # Auto-relaxation: if filters produce 0 results, retry with relaxed filters (text-only)
+    if payload["total"] == 0 and (q or category_filter or tags or min_duration is not None or max_duration is not None or date_from or date_to):
+        try:
+            # Rebuild a simplified query: text-only, no hard filters
+            rq = (
+                db.session.query(Video, VideoProgress.position)
+                .outerjoin(Video.tags)
+                .outerjoin(Video.category)
+                .outerjoin(Video.surgeons)
+                .outerjoin(VideoProgress, and_(Video.uuid == VideoProgress.video_id, VideoProgress.user_id == user_id))
+            )
+            if q:
+                if use_pg:
+                    # Use stored vector
+                    base_vec = literal_column('videos.search_vec')
+                    q_parts = [q] + [t for t in terms if t and t.lower() != (q or '').lower()] + [f'"{p}"' for p in phrases]
+                    tsquery = func.websearch_to_tsquery('simple', func.unaccent(' OR '.join(q_parts)))
+                    rank = func.ts_rank_cd(base_vec, tsquery)
+                    rq = rq.filter(base_vec.op('@@')(tsquery)).add_columns(rank.label('rank'))
+                    rq = rq.order_by(desc(literal_column('rank')), Video.created_at.desc())
+                else:
+                    # Heuristic scoring
+                    ilikes = []
+                    for t in terms or [q]:
+                        pat = f"%{t}%"
+                        ilikes += [Video.title.ilike(pat), Video.description.ilike(pat), Video.transcript.ilike(pat), Tag.name.ilike(pat), Category.name.ilike(pat), Surgeon.name.ilike(pat)]
+                    rq = rq.filter(or_(*ilikes))
+                    score_expr = literal(0)
+                    for t in terms or [q]:
+                        ptn = f"%{t}%"
+                        score_expr = score_expr + (
+                            case((Video.title.ilike(ptn), 5), else_=0) +
+                            case((Video.description.ilike(ptn), 3), else_=0) +
+                            case((Video.transcript.ilike(ptn), 2), else_=0) +
+                            case((Category.name.ilike(ptn), 2), else_=0) +
+                            case((Tag.name.ilike(ptn), 3), else_=0) +
+                            case((Surgeon.name.ilike(ptn), 2), else_=0)
+                        )
+                    rq = rq.add_columns(score_expr.label('rank')).order_by(desc(literal_column('rank')), Video.created_at.desc())
+            else:
+                rq = rq.order_by(Video.created_at.desc())
+
+            rpag = rq.paginate(page=page, per_page=per_page, error_out=False)
+            ritems = []
+            for row in rpag.items:
+                try:
+                    v = row[0]
+                    pos = row[1] if len(row) > 1 else None
+                    if isinstance(v, Video):
+                        ritems.append(_mini(v, pos))
+                        continue
+                except Exception:
+                    pass
+                if isinstance(row, Video):
+                    ritems.append(_mini(row))
+            if ritems:
+                payload.update({
+                    "items": ritems,
+                    "page": rpag.page,
+                    "per_page": rpag.per_page,
+                    "pages": rpag.pages,
+                    "total": rpag.total,
+                    "relaxed": True,
+                    "relax_reason": "filters_relaxed_for_no_results"
+                })
+        except Exception:
+            current_app.logger.debug('relaxed_search_failed', exc_info=True)
     try:
-        audit_log('video_search', actor_id=get_jwt_identity(), detail=f'q={q};returned={len(items)}')
+        audit_log('video_search_builtin', actor_id=get_jwt_identity(), detail=f'q={q};returned={len(items)};driver={driver}')
     except Exception:
         pass
     return jsonify(payload)
