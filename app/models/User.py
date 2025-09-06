@@ -75,6 +75,7 @@ class User(db.Model):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(
         timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    last_password_change = Column(DateTime, nullable=True)
     otp = Column(String(6))
     otp_expiration = Column(DateTime)
     # Password reset support
@@ -162,8 +163,10 @@ class User(db.Model):
         if not password_strong(raw_password):
             raise ValueError("Password does not meet complexity requirements")
         salt = bcrypt.gensalt()
+        # Hash & set password metadata
         self.password_hash = bcrypt.hashpw(raw_password.encode(), salt).decode()
         self.password_expiration = datetime.now(timezone.utc) + timedelta(days=PASSWORD_EXPIRATION_DAYS)
+        self.last_password_change = datetime.now(timezone.utc)
 
     def check_password(self, raw_password: str) -> bool:
         try:
@@ -279,6 +282,7 @@ class User(db.Model):
             'updated_at': iso_or_none(self.updated_at),
             'last_login': iso_or_none(self.last_login),
             'password_expiration': iso_or_none(self.password_expiration),
+            'last_password_change': iso_or_none(self.last_password_change),
         }
 
         if include_sensitive:

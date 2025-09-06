@@ -221,3 +221,10 @@ def linked_videos_page():
 def superadmin_users_management_page():
     """Superadmin user management SPA-like page (fetches data via /api/v1/super/users)."""
     return render_template('super_users.html')
+
+@view_bp.route('/admin/super/users/<user_id>/activity')
+@jwt_required()
+@require_roles('superadmin')
+def superadmin_user_activity_page(user_id):
+    # Template will fetch data via API; only pass id
+    return render_template('user_activity.html', user_id=user_id)

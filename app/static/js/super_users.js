@@ -156,7 +156,7 @@
       const docBadge = u.document_submitted ? '<span class="inline-block px-2 py-0.5 text-[10px] rounded bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-100">Yes</span>' : '<span class="inline-block px-2 py-0.5 text-[10px] rounded bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200">No</span>';
       tr.innerHTML = `
         <td><input type="checkbox" class="row-select" value="${u.id}" ${isSelected?'checked':''}></td>
-        <td>${escapeHtml(u.username||'')}</td>
+  <td><a class="text-blue-600 hover:underline" href="/admin/super/users/${u.id}/activity">${escapeHtml(u.username||'')}</a></td>
         <td class="truncate max-w-[220px]" title="${escapeHtml(u.email||'')}">${escapeHtml(u.email||'')}</td>
         <td class="space-x-1">${roles}</td>
         <td>${u.is_active ? 'Yes' : 'No'}</td>

@@ -182,3 +182,19 @@ class Favourite(db.Model):
 
     user = db.relationship('User', back_populates='favourites')
     video = db.relationship('Video', back_populates='favourites')
+
+
+class VideoViewEvent(db.Model):
+    __tablename__ = 'video_view_events'
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False, index=True)
+    video_id = db.Column(db.String(36), db.ForeignKey('videos.uuid'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, server_default=db.func.current_timestamp(), index=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': str(self.user_id),
+            'video_id': self.video_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
