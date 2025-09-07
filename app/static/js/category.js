@@ -259,18 +259,36 @@
     };
 
     // ------------------ Builders ------------------
-    function renderCardsInto(items, mount) {
+    async function renderCardsInto(items, mount) {
         if (!mount) return;
         const frag = document.createDocumentFragment();
         items.forEach((v) => frag.appendChild(buildCard(v)));
         mount.replaceChildren(frag);
+        try { await annotateSaved(mount, items); } catch {}
     }
 
-    function renderRowsInto(items, mount) {
+    async function renderRowsInto(items, mount) {
         if (!mount) return;
         const frag = document.createDocumentFragment();
         items.forEach((v) => frag.appendChild(buildRow(v)));
         mount.replaceChildren(frag);
+        try { await annotateSaved(mount, items); } catch {}
+    }
+
+    async function annotateSaved(container, items){
+        const ids = (items||[]).map(v=> v.uuid || v.id || v.slug).filter(Boolean);
+        if(!ids.length) return;
+        const params = new URLSearchParams(); params.set('ids', ids.join(','));
+        const r = await fetch(`/api/v1/video/playlists/contains?${params.toString()}`, { headers:{ 'Accept':'application/json' }});
+        if(!r.ok) return; const data = await r.json().catch(()=>({present:[]}));
+        const present = new Set(data.present||[]);
+        container.querySelectorAll('[data-video-id]').forEach(a=>{
+            const id = a.getAttribute('data-video-id'); if(!present.has(id)) return;
+            const hero = a.querySelector('.aspect-video') || a;
+            const badge = document.createElement('span');
+            badge.className = 'absolute top-2 left-2 badge';
+            badge.textContent = 'Saved'; hero.classList.add('relative'); hero.appendChild(badge);
+        });
     }
 
     function buildCard(v) {
@@ -342,6 +360,17 @@
                 thumb.src = placeholderThumb(id);
             };
         }
+
+        // --------- add-to-playlist floating button ---------
+        try {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'absolute left-2 bottom-2 z-10 text-xs px-2 py-1 rounded bg-black/60 text-white hover:bg-black/80';
+            btn.textContent = '＋ Playlist';
+            btn.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); if(window.playlistMulti){ window.playlistMulti.show(id); } });
+            hero?.appendChild(btn);
+            hero?.classList.add('relative');
+        } catch {}
 
         // --------- avatar ---------
         if (avatar) {

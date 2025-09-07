@@ -65,6 +65,7 @@
         viewToggle: $("#viewToggle"),
 
         resultsGrid: $("#resultsGrid"),
+        playlistResults: $("#playlistResults"),
         pageNumber: $("#pageNumber"),
         prevBtn: $("#prevBtn"),
         nextBtn: $("#nextBtn"),
@@ -394,9 +395,18 @@
         lastData = result;
 
         render(result);
+        // Also refresh playlists panel
+        refreshPlaylists();
     }
 
-    function render(result) {
+    async function refreshPlaylists(){
+        const mount = dom.playlistResults; if(!mount) return;
+        const url = buildPlaylistQueryUrl();
+        const data = await safeGet(url);
+        renderPlaylistResults(data);
+    }
+
+    async function render(result) {
         // Page number + nav
         if (dom.pageNumber)
             dom.pageNumber.textContent = `Page ${result.page || state.page} of ${result.pages || state.totalPages || 1}`;
@@ -410,12 +420,36 @@
         if (state.view === "grid") {
             dom.resultsGrid.classList.remove("list-view");
             dom.resultsGrid.classList.add("grid");
-            renderCardsInto(result.items, dom.resultsGrid);
+            await renderCardsInto(result.items, dom.resultsGrid);
         } else {
             dom.resultsGrid.classList.remove("grid");
             dom.resultsGrid.classList.add("list-view");
-            renderRowsInto(result.items, dom.resultsGrid);
+            await renderRowsInto(result.items, dom.resultsGrid);
         }
+    }
+
+    function buildPlaylistQueryUrl(){
+        const params = new URLSearchParams();
+        params.set('q', state.q||'');
+        params.set('page', 1);
+        params.set('page_size', 8);
+        return `/api/v1/video/search/playlists?${params.toString()}`;
+    }
+
+    function renderPlaylistResults(result){
+        const mount = dom.playlistResults; if(!mount) return;
+        const items = (result && result.items) || [];
+        const frag = document.createDocumentFragment();
+        items.forEach(p=>{
+            const a = document.createElement('a');
+            a.href = `/playlist/${p.id}/play`;
+            a.className = 'card p-3 no-underline hover:shadow-xl transition-shadow';
+            a.innerHTML = `<div class=\"rounded-lg h-24 bg-[color:var(--border)] mb-2 flex items-center justify-center text-2xl\">🎵</div>
+                <div class=\"font-semibold line-clamp-2\">${escapeHtml(p.title||'Untitled')}</div>
+                <div class=\"text-xs muted\">${p.items||0} items</div>`;
+            frag.appendChild(a);
+        });
+        mount.replaceChildren(frag);
     }
 
     // ------------------ Populate filter sources ------------------
@@ -461,18 +495,36 @@
     }
 
     // ------------------ Builders ------------------
-    function renderCardsInto(items, mount) {
+    async function renderCardsInto(items, mount) {
         if (!mount) return;
         const frag = document.createDocumentFragment();
         items.forEach((v) => frag.appendChild(buildCard(v)));
         mount.replaceChildren(frag);
+        try { await annotateSaved(mount, items); } catch {}
     }
 
-    function renderRowsInto(items, mount) {
+    async function renderRowsInto(items, mount) {
         if (!mount) return;
         const frag = document.createDocumentFragment();
         items.forEach((v) => frag.appendChild(buildRow(v)));
         mount.replaceChildren(frag);
+        try { await annotateSaved(mount, items); } catch {}
+    }
+
+    async function annotateSaved(container, items){
+        const ids = (items||[]).map(v=> v.uuid || v.id || v.slug).filter(Boolean);
+        if(!ids.length) return;
+        const params = new URLSearchParams(); params.set('ids', ids.join(','));
+        const r = await fetch(`/api/v1/video/playlists/contains?${params.toString()}`, { headers:{ 'Accept':'application/json' }});
+        if(!r.ok) return; const data = await r.json().catch(()=>({present:[]}));
+        const present = new Set(data.present||[]);
+        container.querySelectorAll('[data-video-id]').forEach(a=>{
+            const id = a.getAttribute('data-video-id'); if(!present.has(id)) return;
+            const hero = a.querySelector('.aspect-video') || a;
+            const badge = document.createElement('span');
+            badge.className = 'absolute top-2 left-2 badge';
+            badge.textContent = 'Saved'; hero.classList.add('relative'); hero.appendChild(badge);
+        });
     }
 
     function buildCard(v) {
@@ -554,6 +606,16 @@
                 avatar.src = placeholderAvatar(authorName);
             };
         }
+
+        // floating add-to-playlist button
+        try {
+          const btn = document.createElement('button');
+          btn.type='button';
+          btn.className='absolute left-2 bottom-2 z-10 text-xs px-2 py-1 rounded bg-black/60 text-white hover:bg-black/80';
+          btn.textContent='＋ Playlist';
+          btn.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); if(window.playlistMulti){ window.playlistMulti.show(id); } });
+          hero?.appendChild(btn); hero?.classList.add('relative');
+        } catch {}
 
         // text
         if (title) title.textContent = titleText;

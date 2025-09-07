@@ -158,7 +158,8 @@
       ],
       [ // Activity
         { href: '/history', label: 'History' },
-        { href: '/favourites', label: 'Favourites' }
+        { href: '/favourites', label: 'Favourites' },
+        { href: '/playlists', label: 'Playlists' }
       ],
       isUploader ? [ { href: '/upload', label: 'Upload Video' } ] : null,
       [ // Legal

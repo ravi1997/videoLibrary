@@ -198,3 +198,70 @@ class VideoViewEvent(db.Model):
             'video_id': self.video_id,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
+
+
+# -------------------- Playlists --------------------
+class Playlist(db.Model):
+    __tablename__ = 'playlists'
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    is_public = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    owner_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, server_default=db.func.current_timestamp())
+    updated_at = db.Column(db.DateTime, nullable=False, server_default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
+
+    items = db.relationship('PlaylistItem', back_populates='playlist', cascade='all, delete-orphan', order_by='PlaylistItem.position')
+
+    def to_dict(self, with_counts: bool = True):
+        d = {
+            'id': self.id,
+            'title': self.title,
+            'description': self.description or '',
+            'is_public': bool(self.is_public),
+            'owner_id': str(self.owner_id) if self.owner_id else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if with_counts:
+            try:
+                d['items'] = len(self.items)
+            except Exception:
+                d['items'] = 0
+        return d
+
+
+class PlaylistItem(db.Model):
+    __tablename__ = 'playlist_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    playlist_id = db.Column(db.Integer, db.ForeignKey('playlists.id', ondelete='CASCADE'), nullable=False, index=True)
+    video_id = db.Column(db.String(36), db.ForeignKey('videos.uuid'), nullable=False, index=True)
+    position = db.Column(db.Integer, nullable=False, default=0, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, server_default=db.func.current_timestamp())
+
+    playlist = db.relationship('Playlist', back_populates='items')
+    video = db.relationship('Video', primaryjoin='foreign(PlaylistItem.video_id)==Video.uuid')
+
+    __table_args__ = (
+        db.UniqueConstraint('playlist_id', 'video_id', name='uq_playlist_video'),
+    )
+
+    def to_dict(self, with_video=True):
+        d = {
+            'id': self.id,
+            'playlist_id': self.playlist_id,
+            'video_id': self.video_id,
+            'position': self.position,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+        if with_video and self.video:
+            d['video'] = {
+                'uuid': self.video.uuid,
+                'title': self.video.title,
+                'duration': float(self.video.duration or 0.0),
+                'views': int(self.video.views or 0),
+                'created_at': self.video.created_at.isoformat() if self.video.created_at else None,
+            }
+        return d

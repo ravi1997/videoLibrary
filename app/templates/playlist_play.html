@@ -1,0 +1,32 @@
+{% extends 'layout.html' %}
+{% block title %}Play Playlist · RPC Surgical Video Library{% endblock %}
+{% block content %}
+<div class="flex flex-col lg:flex-row gap-6" data-pid="{{ pid }}">
+  <section class="flex-1 min-w-0">
+    <div class="card p-3">
+      <video id="plPlayer" class="video-js vjs-big-play-centered w-full h-auto" controls preload="auto"></video>
+    </div>
+    <div class="mt-3 flex items-center gap-2">
+      <button id="btnPrev" class="btn btn-ghost">⏮ Prev</button>
+      <button id="btnNext" class="btn btn-primary">Next ⏭</button>
+      <div id="nowPlaying" class="text-sm muted"></div>
+    </div>
+
+    <div class="mt-6 card p-4">
+      <h2 class="text-lg font-semibold">Recommended</h2>
+      <div id="plRecs" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-2"></div>
+    </div>
+  </section>
+
+  <aside class="w-full lg:w-[360px] shrink-0">
+    <div class="card p-4">
+      <h2 class="text-lg font-semibold">Playlist</h2>
+      <div id="plItems" class="mt-2 space-y-2 max-h-[60vh] overflow-auto"></div>
+    </div>
+  </aside>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/playlist_play.js') }}" defer></script>
+{% endblock %}
+

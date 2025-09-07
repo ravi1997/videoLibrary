@@ -1,0 +1,41 @@
+{% extends 'layout.html' %}
+{% block title %}Playlists · RPC Surgical Video Library{% endblock %}
+{% block content %}
+<div class="space-y-4">
+  <h1 class="text-2xl font-bold m-0">🎵 Playlists</h1>
+
+  <div class="card">
+    <div class="flex items-center gap-2">
+      <button class="seg active" id="tabPersonal" data-scope="personal">My Playlists</button>
+      <button class="seg" id="tabPublic" data-scope="public">Public</button>
+      <div class="flex-1"></div>
+      <button id="btnNewPl" class="btn btn-primary" title="Create playlist">＋ New</button>
+    </div>
+  </div>
+
+  <div id="newPlForm" class="card hidden">
+    <div class="grid gap-2" style="grid-template-columns: 1fr 1fr auto;">
+      <input id="plTitle" class="input" placeholder="Title" />
+      <input id="plDesc" class="input" placeholder="Description (optional)" />
+      <label class="text-sm flex items-center gap-2"><input type="checkbox" id="plPublic"/> Public</label>
+    </div>
+    <div class="mt-2 flex gap-2">
+      <button id="plCreate" class="btn btn-primary">Create</button>
+      <button id="plCancel" class="btn btn-ghost">Cancel</button>
+      <div id="plMsg" class="text-sm muted"></div>
+    </div>
+    <div class="text-xs muted mt-1">Public playlists require uploader/admin/superadmin roles.</div>
+  </div>
+
+  <div id="plList" class="space-y-2"></div>
+  <div class="flex items-center gap-2">
+    <button id="prevPage" class="btn btn-ghost">⏮ Prev</button>
+    <div id="pageInfo" class="text-sm"></div>
+    <button id="nextPage" class="btn btn-ghost">Next ⏭</button>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/playlists.js') }}" defer></script>
+{% endblock %}
+

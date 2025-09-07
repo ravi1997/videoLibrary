@@ -12,6 +12,8 @@ from app.tasks import start_hls_worker
 
 
 from .commands.user_commands import create_user, create_superadmin, rotate_superadmin_password
+from .commands.search_commands import search_reindex
+from .commands.setup_commands import setup_command
 
 from app.routes import register_blueprints
 
@@ -115,6 +117,8 @@ def create_app(config_class=Config):
     app.cli.add_command(create_user)
     app.cli.add_command(create_superadmin)
     app.cli.add_command(rotate_superadmin_password)
+    app.cli.add_command(search_reindex)
+    app.cli.add_command(setup_command)
 
     # ------------------------------------------------------------------
     # Logging & Access log middleware

@@ -145,6 +145,10 @@ sudo apt install -y redis-server
 # One-time setup
 bash scripts/setup_env.sh
 
+# Zero-touch DB and FTS provisioning (fresh machines)
+export FLASK_APP=run.py
+flask setup --superadmin-password 'ChangeMe!123'  # creates schema, ensures unaccent, creates superadmin, builds FTS
+
 # Development
 MODE=dev bash scripts/start_app.sh
 
@@ -152,6 +156,13 @@ MODE=dev bash scripts/start_app.sh
 MODE=prod PORT=8000 WORKERS=4 LOG_LEVEL=info bash scripts/start_app.sh
 ```
 Default bind: `http://127.0.0.1:5000`.
+
+Tip: To auto-run migrations on app start (dev/CI), set `AUTO_MIGRATE_ON_STARTUP=true`.
+
+PostgreSQL Full-Text Search
+- Migrations provision `videos.search_vec` (tsvector), compute function, triggers, and a GIN index.
+- `flask setup` ensures the `unaccent` extension and backfills vectors.
+- On non-Postgres engines (e.g., SQLite), FTS steps are no-ops and the API falls back to ILIKE search.
 
 ---
 
@@ -450,4 +461,3 @@ This creates the new composite indexes without destructive changes.
 
 Security:
 - Both endpoints require SUPERADMIN role.
-

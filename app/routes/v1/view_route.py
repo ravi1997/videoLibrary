@@ -119,6 +119,25 @@ def settings_page():
 def history_page():
     return render_template('history.html')
 
+# Playlists
+@view_bp.route('/playlists')
+@jwt_required()
+@require_roles(Role.VIEWER.value)
+def playlists_page():
+    return render_template('playlists.html')
+
+@view_bp.route('/playlists/<int:pid>')
+@jwt_required()
+@require_roles(Role.VIEWER.value)
+def playlist_detail_page(pid: int):
+    return render_template('playlist_detail.html', pid=pid)
+
+@view_bp.route('/playlist/<int:pid>/play')
+@jwt_required()
+@require_roles(Role.VIEWER.value)
+def playlist_play_page(pid: int):
+    return render_template('playlist_play.html', pid=pid)
+
 # Video edit page (uploader/admin/superadmin)
 @view_bp.route('/video/<video_id>/edit')
 @jwt_required()

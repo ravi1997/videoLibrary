@@ -330,8 +330,9 @@ def generate_otp():
         current_app.logger.exception("Failed to save OTP to DB")
         return jsonify({"msg": "internal server error", "success": False}), 500
 
-    # TODO: Integrate SMS provider here to send OTP
-    current_app.logger.debug(f"[DEBUG] OTP for {mobile}: {otp_code}")  # Logging only for development
+    # For development visibility (production uses SMS provider via send_sms)
+    if current_app.config.get('DEBUG'):
+        current_app.logger.debug(f"[DEBUG] OTP for {mobile}: {otp_code}")
 
     audit_log('generate_otp_success', target_user_id=user.id)
     return jsonify({"msg": "OTP sent successfully", "success": True}), 200

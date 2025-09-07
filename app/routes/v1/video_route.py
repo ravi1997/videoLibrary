@@ -16,7 +16,7 @@ from sqlalchemy import and_, case, desc, or_, func, literal, literal_column
 import re
 
 from app.extensions import db
-from app.models.video import Favourite, VideoProgress, VideoViewEvent
+from app.models.video import Favourite, VideoProgress, VideoViewEvent, Playlist, PlaylistItem
 from app.schemas.video_schema import (
     VideoMetaInputSchema, VideoMiniSchema, TagSchema, CategorySchema,
     SurgeonSchema, UserSchema
@@ -43,6 +43,21 @@ tag_schema = TagSchema(many=True)
 category_schema = CategorySchema(many=True)
 surgeon_schema = SurgeonSchema(many=True)
 user_schema = UserSchema()
+
+# ------------------------------
+# Playlist helpers
+# ------------------------------
+def _roles_has_any(required):
+    try:
+        from flask_jwt_extended import get_jwt
+        claims = get_jwt() or {}
+        roles = set([str(r).lower() for r in (claims.get('roles') or [])])
+        for r in required:
+            if str(r).lower() in roles:
+                return True
+    except Exception:
+        pass
+    return False
 
 # ------------------------------------------------------------------------------
 # Blueprint
@@ -1514,7 +1529,6 @@ def search_videos():
 
     tags = request.args.getlist("tags")
 
-    # TODO: dynamically fetch from auth/session
     user_id = get_jwt_identity()
 
     # --- Helper: lightweight synonyms expansion ---
@@ -1581,6 +1595,16 @@ def search_videos():
     phrases = extract_phrases(q)
     driver = str(db.engine.url.drivername)
     use_pg = 'postgresql' in driver
+    # Guard: ensure search_vec column actually exists; otherwise disable FTS
+    if use_pg:
+        try:
+            from sqlalchemy import inspect as sa_inspect
+            insp = sa_inspect(db.engine)
+            cols = [c.get('name') for c in insp.get_columns('videos')]
+            if 'search_vec' not in (cols or []):
+                use_pg = False
+        except Exception:
+            use_pg = False
     sim_available = False
     if q:
         if use_pg:
@@ -1819,6 +1843,245 @@ def search_videos():
     return jsonify(payload)
 
 
+# ------------------------------------------------------------------------------
+# 18) Playlists (personal and public)
+# ------------------------------------------------------------------------------
+
+@video_bp.route('/playlists', methods=['GET'])
+@jwt_required()
+@require_roles(Role.VIEWER.value, Role.UPLOADER.value, Role.ADMIN.value, Role.SUPERADMIN.value)
+def list_playlists():
+    scope = (request.args.get('scope') or 'personal').lower()
+    page, page_size = parse_pagination_params(default_page=1, default_page_size=20, max_page_size=100)
+    q = Playlist.query
+    if scope == 'public':
+        q = q.filter(Playlist.is_public.is_(True))
+    else:
+        uid = coerce_uuid(get_jwt_identity())
+        # Personal tab shows all playlists owned by the user (both personal and public)
+        q = q.filter(Playlist.owner_id == uid)
+    total = q.count()
+    rows = q.order_by(Playlist.created_at.desc()).offset((page-1)*page_size).limit(page_size).all()
+    items = [p.to_dict() for p in rows]
+    return jsonify({'items': items, 'page': page, 'pages': max(1, (total + page_size - 1)//page_size), 'total': total})
+
+
+@video_bp.route('/playlists', methods=['POST'])
+@jwt_required()
+@require_roles(Role.VIEWER.value, Role.UPLOADER.value, Role.ADMIN.value, Role.SUPERADMIN.value)
+def create_playlist():
+    data = request.get_json(force=True, silent=True) or {}
+    title = (data.get('title') or '').strip()
+    description = (data.get('description') or '').strip()
+    is_public = bool(data.get('is_public'))
+    if not title:
+        return jsonify({'error': 'title required'}), 400
+    if is_public and not _roles_has_any([Role.UPLOADER.value, Role.ADMIN.value, Role.SUPERADMIN.value]):
+        return jsonify({'error': 'forbidden'}), 403
+    pl = Playlist(title=title, description=description, is_public=is_public)
+    pl.owner_id = coerce_uuid(get_jwt_identity())
+    db.session.add(pl)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({'error': 'persist_failed'}), 500
+    return jsonify({'playlist': pl.to_dict()}), 201
+
+
+@video_bp.get('/playlists/contains')
+@jwt_required()
+@require_roles(Role.VIEWER.value)
+def playlists_contains():
+    raw = request.args.get('ids') or ''
+    ids = set([s.strip() for s in raw.split(',') if s.strip()])
+    # Also accept repeated 'id' params
+    for arg, vals in request.args.lists():
+        if arg in ('id', 'ids[]'):
+            for v in vals:
+                if v: ids.add(v)
+    if not ids:
+        return jsonify({'present': []})
+    uid = coerce_uuid(get_jwt_identity())
+    rows = db.session.query(PlaylistItem.video_id).join(Playlist, PlaylistItem.playlist_id == Playlist.id). \
+        filter(Playlist.owner_id == uid, PlaylistItem.video_id.in_(list(ids))).distinct().all()
+    present = [r[0] for r in rows]
+    return jsonify({'present': present})
+
+
+def _can_view_playlist(pl: Playlist, uid):
+    if pl.is_public:
+        return True
+    return pl.owner_id == uid
+
+
+def _can_edit_playlist(pl: Playlist, uid):
+    if pl.owner_id == uid:
+        return True
+    if _roles_has_any([Role.ADMIN.value, Role.SUPERADMIN.value]):
+        return True
+    return False
+
+
+@video_bp.route('/playlists/<int:pid>', methods=['GET'])
+@jwt_required()
+@require_roles(Role.VIEWER.value, Role.UPLOADER.value, Role.ADMIN.value, Role.SUPERADMIN.value)
+def get_playlist(pid: int):
+    pl = db.session.get(Playlist, pid)
+    if not pl:
+        return jsonify({'error': 'not_found'}), 404
+    uid = coerce_uuid(get_jwt_identity())
+    if not _can_view_playlist(pl, uid):
+        return jsonify({'error': 'forbidden'}), 403
+    return jsonify({'playlist': pl.to_dict()}), 200
+
+
+@video_bp.route('/playlists/<int:pid>/items', methods=['GET'])
+@jwt_required()
+@require_roles(Role.VIEWER.value, Role.UPLOADER.value, Role.ADMIN.value, Role.SUPERADMIN.value)
+def list_playlist_items(pid: int):
+    pl = db.session.get(Playlist, pid)
+    if not pl:
+        return jsonify({'error': 'not_found'}), 404
+    uid = coerce_uuid(get_jwt_identity())
+    if not _can_view_playlist(pl, uid):
+        return jsonify({'error': 'forbidden'}), 403
+    page, page_size = parse_pagination_params(default_page=1, default_page_size=50, max_page_size=200)
+    q = PlaylistItem.query.filter(PlaylistItem.playlist_id == pl.id)
+    total = q.count()
+    rows = q.order_by(PlaylistItem.position.asc(), PlaylistItem.id.asc()).offset((page-1)*page_size).limit(page_size).all()
+    items = [it.to_dict(with_video=True) for it in rows]
+    return jsonify({'items': items, 'page': page, 'pages': max(1, (total + page_size - 1)//page_size), 'total': total}), 200
+
+
+@video_bp.route('/playlists/<int:pid>/items', methods=['POST'])
+@jwt_required()
+@require_roles(Role.VIEWER.value, Role.UPLOADER.value, Role.ADMIN.value, Role.SUPERADMIN.value)
+def add_playlist_item(pid: int):
+    pl = db.session.get(Playlist, pid)
+    if not pl:
+        return jsonify({'error': 'not_found'}), 404
+    uid = coerce_uuid(get_jwt_identity())
+    if not _can_edit_playlist(pl, uid):
+        return jsonify({'error': 'forbidden'}), 403
+    data = request.get_json(force=True, silent=True) or {}
+    video_id = (data.get('video_id') or '').strip()
+    if not video_id:
+        return jsonify({'error': 'video_id required'}), 400
+    v = Video.query.filter_by(uuid=video_id).first()
+    if not v:
+        return jsonify({'error': 'video_not_found'}), 404
+    try:
+        max_pos = db.session.query(db.func.max(PlaylistItem.position)).filter(PlaylistItem.playlist_id == pl.id).scalar() or 0
+    except Exception:
+        max_pos = 0
+    it = PlaylistItem(playlist_id=pl.id, video_id=video_id, position=int(max_pos) + 1)
+    db.session.add(it)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({'error': 'persist_failed_or_duplicate'}), 400
+    return jsonify({'item': it.to_dict(with_video=True)}), 201
+
+
+@video_bp.route('/playlists/<int:pid>/items/<video_id>', methods=['DELETE'])
+@jwt_required()
+@require_roles(Role.VIEWER.value, Role.UPLOADER.value, Role.ADMIN.value, Role.SUPERADMIN.value)
+def remove_playlist_item(pid: int, video_id: str):
+    pl = db.session.get(Playlist, pid)
+    if not pl:
+        return jsonify({'error': 'not_found'}), 404
+    uid = coerce_uuid(get_jwt_identity())
+    if not _can_edit_playlist(pl, uid):
+        return jsonify({'error': 'forbidden'}), 403
+    it = PlaylistItem.query.filter_by(playlist_id=pl.id, video_id=video_id).first()
+    if not it:
+        return jsonify({'error': 'item_not_found'}), 404
+    db.session.delete(it)
+    db.session.commit()
+    return jsonify({'ok': True}), 200
+
+
+@video_bp.route('/playlists/<int:pid>/reorder', methods=['POST'])
+@jwt_required()
+@require_roles(Role.VIEWER.value, Role.UPLOADER.value, Role.ADMIN.value, Role.SUPERADMIN.value)
+def reorder_playlist(pid: int):
+    pl = db.session.get(Playlist, pid)
+    if not pl:
+        return jsonify({'error': 'not_found'}), 404
+    uid = coerce_uuid(get_jwt_identity())
+    if not _can_edit_playlist(pl, uid):
+        return jsonify({'error': 'forbidden'}), 403
+    data = request.get_json(force=True, silent=True) or {}
+    order = data.get('order') or []
+    if not isinstance(order, list) or not order:
+        return jsonify({'error': 'order required'}), 400
+    pos = 1
+    updated = 0
+    for vid in order:
+        try:
+            vid = str(vid)
+        except Exception:
+            continue
+        r = PlaylistItem.query.filter_by(playlist_id=pl.id, video_id=vid).first()
+        if r:
+            if r.position != pos:
+                r.position = pos
+            updated += 1
+            pos += 1
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({'error': 'persist_failed'}), 500
+    return jsonify({'ok': True, 'updated': updated}), 200
+
+
+@video_bp.route('/playlists/<int:pid>', methods=['PUT'])
+@jwt_required()
+@require_roles(Role.VIEWER.value, Role.UPLOADER.value, Role.ADMIN.value, Role.SUPERADMIN.value)
+def update_playlist(pid: int):
+    pl = db.session.get(Playlist, pid)
+    if not pl:
+        return jsonify({'error': 'not_found'}), 404
+    uid = coerce_uuid(get_jwt_identity())
+    if not _can_edit_playlist(pl, uid):
+        return jsonify({'error': 'forbidden'}), 403
+    data = request.get_json(force=True, silent=True) or {}
+    title = (data.get('title') or '').strip()
+    description = (data.get('description') or '').strip()
+    if title:
+        pl.title = title
+    pl.description = description
+    if 'is_public' in data:
+        desired = bool(data.get('is_public'))
+        if desired and not _roles_has_any([Role.UPLOADER.value, Role.ADMIN.value, Role.SUPERADMIN.value]):
+            return jsonify({'error': 'forbidden'}), 403
+        pl.is_public = desired
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({'error': 'persist_failed'}), 500
+    return jsonify({'playlist': pl.to_dict()}), 200
+
+
+@video_bp.route('/playlists/<int:pid>', methods=['DELETE'])
+@jwt_required()
+@require_roles(Role.VIEWER.value, Role.UPLOADER.value, Role.ADMIN.value, Role.SUPERADMIN.value)
+def delete_playlist(pid: int):
+    pl = db.session.get(Playlist, pid)
+    if not pl:
+        return jsonify({'error': 'not_found'}), 404
+    uid = coerce_uuid(get_jwt_identity())
+    if not _can_edit_playlist(pl, uid):
+        return jsonify({'error': 'forbidden'}), 403
+    db.session.delete(pl)
+    db.session.commit()
+    return jsonify({'ok': True}), 200
+
+
 
 # ------------------------------------------------------------------------------
 # 15) Thumbnails (Static helper)
@@ -1892,3 +2155,97 @@ def analytics():
     except Exception:
         pass
     return jsonify({"ok": True}), 201
+
+
+# ------------------------------------------------------------------------------
+# 19) Search Playlists
+# ------------------------------------------------------------------------------
+
+@video_bp.route('/search/playlists', methods=['GET'])
+@jwt_required()
+@require_roles(Role.VIEWER.value)
+def search_playlists():
+    q = (request.args.get('q') or '').strip()
+    page, page_size = parse_pagination_params(default_page=1, default_page_size=12, max_page_size=100)
+    # Build base with joins for relevance and counts
+    base = db.session.query(Playlist). \
+        outerjoin(PlaylistItem, PlaylistItem.playlist_id == Playlist.id). \
+        outerjoin(Video, PlaylistItem.video_id == Video.uuid). \
+        outerjoin(VideoTag, VideoTag.video_id == Video.uuid). \
+        outerjoin(Tag, Tag.id == VideoTag.tag_id). \
+        filter(Playlist.is_public.is_(True))
+    if q:
+        like = f"%{q}%"
+        base = base.filter(db.or_(Playlist.title.ilike(like), Playlist.description.ilike(like), Tag.name.ilike(like)))
+    total = base.group_by(Playlist.id).count() if q else Playlist.query.filter(Playlist.is_public.is_(True)).count()
+    rows = base.group_by(Playlist.id).order_by(db.func.count(PlaylistItem.id).desc(), Playlist.created_at.desc()).offset((page-1)*page_size).limit(page_size).all()
+    items = [p.to_dict() for p in rows]
+    return jsonify({'items': items, 'page': page, 'pages': max(1, (total + page_size - 1)//page_size), 'total': total})
+
+
+# ------------------------------------------------------------------------------
+# 20) Playlist playback helpers (next / recommended)
+# ------------------------------------------------------------------------------
+
+@video_bp.route('/playlists/<int:pid>/next', methods=['GET'])
+@jwt_required()
+@require_roles(Role.VIEWER.value)
+def playlist_next(pid: int):
+    current = (request.args.get('current') or '').strip()
+    pl = db.session.get(Playlist, pid)
+    if not pl:
+        return jsonify({'error': 'not_found'}), 404
+    uid = coerce_uuid(get_jwt_identity())
+    if not _can_view_playlist(pl, uid):
+        return jsonify({'error': 'forbidden'}), 403
+    items = PlaylistItem.query.filter_by(playlist_id=pl.id).order_by(PlaylistItem.position.asc(), PlaylistItem.id.asc()).all()
+    if not items:
+        return jsonify({'error': 'empty'}), 404
+    idx = 0
+    if current:
+        for i, it in enumerate(items):
+            if it.video_id == current:
+                idx = (i + 1) if i + 1 < len(items) else i
+                break
+    it = items[idx]
+    v = db.session.get(Video, it.video_id)
+    if not v:
+        return jsonify({'error': 'video_missing'}), 404
+    return jsonify({
+        'index': idx,
+        'item': it.to_dict(with_video=True),
+        'has_next': idx + 1 < len(items),
+        'has_prev': idx > 0,
+        'playlist': pl.to_dict(with_counts=False)
+    })
+
+
+@video_bp.route('/playlists/<int:pid>/recommended', methods=['GET'])
+@jwt_required()
+@require_roles(Role.VIEWER.value)
+def playlist_recommended(pid: int):
+    current = (request.args.get('current') or '').strip()
+    pl = db.session.get(Playlist, pid)
+    if not pl:
+        return jsonify({'error': 'not_found'}), 404
+    uid = coerce_uuid(get_jwt_identity())
+    if not _can_view_playlist(pl, uid):
+        return jsonify({'error': 'forbidden'}), 403
+    v = Video.query.filter_by(uuid=current).first() if current else None
+    recs = []
+    try:
+        if v:
+            recs = _related_by_category(v, limit=5) or _recommend_by_tags(v, limit=5)
+    except Exception:
+        pass
+    out = []
+    for rv in (recs or []):
+        out.append({
+            'uuid': rv.uuid,
+            'title': rv.title,
+            'duration': float(rv.duration or 0.0),
+            'views': int(rv.views or 0),
+            'thumbnail': f"/api/v1/video/thumbnails/{rv.uuid}.jpg",
+            'url': f"/{rv.uuid}",
+        })
+    return jsonify({'items': out})

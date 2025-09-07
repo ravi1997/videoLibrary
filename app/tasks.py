@@ -10,7 +10,7 @@ import secrets
 from flask import current_app
 from app.extensions import db
 from app.models import Video
-from sqlalchemy import text
+from sqlalchemy import text, inspect as sa_inspect
 from app.models.enumerations import VideoStatus
 
 _queue = []
@@ -114,6 +114,16 @@ def _rollup_video_views():
     # Skip on non-Postgres engines to avoid startup noise in dev/test (SQLite).
     if getattr(engine, "name", "").lower() != "postgresql":
         current_app.logger.info("Skipping view rollup: non-PostgreSQL engine detected (%s)", getattr(engine, "name", "unknown"))
+        return
+    # Skip if required base table is not yet created (fresh DB before migrations)
+    try:
+        insp = sa_inspect(engine)
+        tables = set(insp.get_table_names())
+        if 'video_view_events' not in tables:
+            current_app.logger.info("Skipping view rollup: base table video_view_events is missing (fresh DB)")
+            return
+    except Exception:
+        current_app.logger.info("Skipping view rollup: failed to inspect tables (DB not ready)")
         return
     with engine.begin() as conn:
         # Ensure summary table exists (simple DDL)

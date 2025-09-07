@@ -9,7 +9,7 @@ HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-5000}"
 WORKERS="${WORKERS:-4}"
 LOG_LEVEL="${LOG_LEVEL:-info}"
-APP_MODULE="run:app"
+APP_MODULE="run:my_app"
 
 if [ ! -x "$PY" ]; then
   echo "[run] Virtualenv python not found. Run scripts/setup_env.sh first." >&2

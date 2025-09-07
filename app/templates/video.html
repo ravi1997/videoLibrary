@@ -47,6 +47,12 @@
                     type="button">
                     ❤️ <span class="text-sm">Favourite</span>
                 </button>
+                <!-- Add to Playlist -->
+                <button id="addToPlaylistBtn"
+                    class="shrink-0 flex items-center gap-1 px-3 py-2 rounded-lg border border-[color:var(--border)] hover:bg-[color:var(--brand-50)] transition-colors"
+                    type="button">
+                    ➕ <span class="text-sm">Add to Playlist</span>
+                </button>
                 <!-- Edit button (visible for uploader/admin/superadmin via JS) -->
                 <a id="editBtn" href="#" class="shrink-0 ml-2 px-3 py-2 rounded-lg border border-[color:var(--border)] hover:bg-[color:var(--brand-50)] transition-colors hidden" title="Edit video metadata">
                     ✏️ <span class="text-sm">Edit</span>
@@ -107,9 +113,35 @@
 
 <!-- Keep this hidden ID hook for JS -->
 <div id="video-id" class="hidden">{{ video_id }}</div>
+
+<!-- Quick Add to Playlist Modal -->
+<div id="plQuickModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-[1000]">
+  <div class="card w-[520px] max-w-[95vw]">
+    <div class="flex items-center justify-between">
+      <div class="text-lg font-semibold">Add to Playlist</div>
+      <button id="plQuickClose" class="btn-ghost">✕</button>
+    </div>
+    <div class="mt-3 space-y-2">
+      <label class="text-sm">Select one of your playlists</label>
+      <select id="plSelect" class="input w-full"></select>
+      <div class="flex items-center gap-2">
+        <button id="plAddBtn" class="btn btn-primary">Add</button>
+        <div id="plQuickMsg" class="text-sm muted"></div>
+      </div>
+      <hr class="divider"/>
+      <div class="text-sm">Or create a new personal playlist</div>
+      <div class="flex items-center gap-2">
+        <input id="plQuickNewTitle" class="input flex-1" placeholder="New playlist title" />
+        <button id="plQuickCreate" class="btn btn-ghost">Create & Add</button>
+      </div>
+    </div>
+  </div>
+  
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/video.js') }}"></script>
 <script src="{{ url_for('static', filename='js/video_favorite.js') }}"></script>
+<script src="{{ url_for('static', filename='js/playlist_quick_add.js') }}" defer></script>
 {% endblock %}

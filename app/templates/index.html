@@ -183,6 +183,25 @@
 
 
 
+<!-- Featured Playlists -->
+<section class="mb-6">
+  <div class="card p-4">
+    <div class="flex items-center justify-between mb-2">
+      <h2 class="text-lg font-bold text-[color:var(--text)]">Featured Playlists</h2>
+      <a href="/playlists" class="text-sm no-underline hover:underline text-[color:var(--brand-600)]">View all</a>
+    </div>
+    <div id="featuredPlaylists" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      {% for _ in range(4) %}
+      <article class="card p-3 animate-pulse">
+        <div class="rounded-lg h-24 bg-[color:var(--border)] mb-2"></div>
+        <div class="h-4 bg-[color:var(--border)] rounded w-4/5 mb-1"></div>
+        <div class="h-3 bg-[color:var(--border)] rounded w-3/5"></div>
+      </article>
+      {% endfor %}
+    </div>
+  </div>
+  </section>
+
 <!-- Tabs: Trending / New / All -->
 <section class="mb-2">
     <div class="flex items-center gap-2 border-b border-[color:var(--border)]">

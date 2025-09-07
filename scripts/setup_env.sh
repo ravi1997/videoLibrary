@@ -59,6 +59,7 @@ fi
 # --- Initialize database (Alembic) ---
 if [ -d "$MIGRATIONS_DIR" ]; then
   echo "[setup] Running database migrations"
+  export FLASK_APP=run.py
   flask db upgrade || echo "[setup] Migration step failed or not configured"
 else
   echo "[setup] No migrations directory found, skipping alembic upgrade"
