@@ -1,17 +1,14 @@
 # routes/user_routes.py
 
-import traceback
-from flask import Blueprint, request, jsonify, session, current_app
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.schemas.user_schema import UserSchema, UserSettingsSchema
 from app.utils.decorator import require_roles
 from app.models.User import User, UserSettings, UserType, Role, MAX_OTP_RESENDS, PASSWORD_EXPIRATION_DAYS
 from app.security_utils import rate_limit, ip_and_path_key, audit_log, coerce_uuid
-from functools import wraps
+from app.utils import metrics_cache
 from datetime import datetime, timedelta, timezone
-import uuid
 from app.extensions import db
-from sqlalchemy.exc import SQLAlchemyError
 user_bp = Blueprint("user_bp", __name__)
 
 # ─── Auth Endpoints ─────────────────────────────────────
@@ -46,18 +43,31 @@ def change_password():
 def reset_password():
     data = request.json or {}
     user = None
-    if data.get("otp"):
-        user = User.objects(mobile=data.get("mobile")).first()
+    # OTP flow by mobile
+    if data.get("otp") and data.get("mobile"):
+        user = User.query.filter_by(mobile=data.get("mobile")).first()
         if not user or not user.verify_otp(data["otp"]):
             return jsonify({"message": "Invalid OTP"}), 400
-    else:
-        user = User.objects(id=data.get("user_id")).first()
+    # Direct by user_id (admin tool or verified flow)
+    elif data.get("user_id"):
+        try:
+            uid = coerce_uuid(data.get("user_id"))
+        except Exception:
+            uid = data.get("user_id")
+        user = User.query.filter_by(id=uid).first()
 
     if not user:
         return jsonify({"message": "User not found"}), 404
 
-    user.set_password(data.get("new_password"))
-    user.save()
+    try:
+        user.set_password(data.get("new_password"))
+        db.session.commit()
+    except ValueError as ve:
+        db.session.rollback()
+        return jsonify({"message": str(ve)}), 400
+    except Exception:
+        db.session.rollback()
+        return jsonify({"message": "Internal error"}), 500
     return jsonify({"message": "Password reset"}), 200
 
 
@@ -66,10 +76,18 @@ def reset_password():
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def auth_unlock():
     data = request.json or {}
-    user = User.objects(id=data.get("user_id")).first()
+    uid = coerce_uuid(data.get("user_id")) if data.get("user_id") else None
+    if not uid:
+        return jsonify({"message": "user_id required"}), 400
+    user = User.query.filter_by(id=uid).first()
     if not user:
         return jsonify({"message": "User not found"}), 404
-    user.unlock_account()
+    try:
+        user.unlock_account()
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({"message": "Internal error"}), 500
     return jsonify({"message": f"User {user.id} unlocked"}), 200
 
 
@@ -123,6 +141,10 @@ def create_user():
             user.set_password(password)
         db.session.add(user)
         db.session.commit()
+        try:
+            metrics_cache.invalidate()
+        except Exception:
+            pass
         try:
             audit_log('user_create', actor_id=get_jwt_identity(), target_user_id=user.id)
         except Exception:
@@ -178,6 +200,10 @@ def update_user(user_id):
         db.session.rollback()
         return jsonify({"message": "Update failed"}), 500
     try:
+        metrics_cache.invalidate()
+    except Exception:
+        pass
+    try:
         audit_log('user_update', actor_id=get_jwt_identity(), target_user_id=user_id)
     except Exception:
         pass
@@ -204,6 +230,10 @@ def delete_user(user_id):
         db.session.rollback()
         return jsonify({"message": "Delete failed"}), 500
     try:
+        metrics_cache.invalidate()
+    except Exception:
+        pass
+    try:
         audit_log('user_delete', actor_id=get_jwt_identity(), target_user_id=user_id)
     except Exception:
         pass
@@ -220,6 +250,10 @@ def lock_user(user_id):
     user.lock_account()
     db.session.commit()
     try:
+        metrics_cache.invalidate()
+    except Exception:
+        pass
+    try:
         audit_log('user_lock', actor_id=get_jwt_identity(), target_user_id=user_id)
     except Exception:
         pass
@@ -235,6 +269,10 @@ def unlock_user(user_id):
         return jsonify({"message": "User not found"}), 404
     user.unlock_account()
     db.session.commit()
+    try:
+        metrics_cache.invalidate()
+    except Exception:
+        pass
     try:
         audit_log('user_unlock', actor_id=get_jwt_identity(), target_user_id=user_id)
     except Exception:

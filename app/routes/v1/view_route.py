@@ -4,7 +4,7 @@ from flask import Blueprint, current_app, render_template, request, jsonify, abo
 from app.config import Config
 from app.models.User import User
 from app.models.enumerations import Role
-from app.models.TokenBlocklist import TokenBlocklist
+# TokenBlocklist removed in favor of unified tokens model
 from app.models.video import Video, Category
 from app.schemas.user_schema import UserSchema
 from flask_jwt_extended import (
@@ -12,7 +12,6 @@ from flask_jwt_extended import (
     get_jwt, set_access_cookies, unset_jwt_cookies
 )
 from app.utils.decorator import require_roles
-from mongoengine import DoesNotExist
 view_bp = Blueprint('view_bp', __name__)
 
 
@@ -22,7 +21,7 @@ ALL_ROLES = tuple(r.value for r in Role)
 
 @view_bp.route('/<video_id>')
 @jwt_required()
-@require_roles(*ALL_ROLES)
+@require_roles(Role.VIEWER.value)
 def video(video_id: str):
     """Video detail page.
 
@@ -49,6 +48,8 @@ def index():
 
 
 @view_bp.route('/search')
+@jwt_required()
+@require_roles(Role.VIEWER.value)
 def search_page():
     q = request.args.get('q', '')
     return render_template('search.html', q=q)
@@ -66,6 +67,8 @@ def login_page():
     return render_template('login.html')
 
 @view_bp.route('/category/<category_name>')
+@jwt_required()
+@require_roles(Role.VIEWER.value)
 def category_page(category_name: str):
     """Render category page only if category exists.
 
@@ -84,6 +87,8 @@ def category_page(category_name: str):
     return render_template('category.html', category=category.name)
 
 @view_bp.route('/tag/<tag_name>')
+@jwt_required()
+@require_roles(Role.VIEWER.value)
 def tag_page(tag_name: str):
     """Render tag page. The API endpoints require auth, but the page can render standalone."""
     # We don't validate existence here; the client will render based on API results
@@ -91,7 +96,7 @@ def tag_page(tag_name: str):
 
 @view_bp.route('/favourites')
 @jwt_required()
-@require_roles(*ALL_ROLES)
+@require_roles(Role.VIEWER.value)
 def favourites_page():
     return render_template('favourites.html')
 
@@ -110,7 +115,7 @@ def settings_page():
 
 @view_bp.route('/history')
 @jwt_required()
-@require_roles(*ALL_ROLES)
+@require_roles(Role.VIEWER.value)
 def history_page():
     return render_template('history.html')
 
@@ -122,6 +127,8 @@ def video_edit_page(video_id):
     return render_template('video_edit.html', video_id=video_id)
 
 @view_bp.route('/change-password')
+@jwt_required()
+@require_roles(*ALL_ROLES)
 def change_password_page():
     return render_template('change-password.html')
 
@@ -135,11 +142,13 @@ def forgot_password_page():
 
 @view_bp.route('/terms')
 def terms_page():
-    return render_template('terms.html', effective_date=datetime.utcnow().date())
+    from datetime import timezone
+    return render_template('terms.html', effective_date=datetime.now(timezone.utc).date())
 
 @view_bp.route('/privacy')
 def privacy_page():
-    return render_template('privacy.html', effective_date=datetime.utcnow().date())
+    from datetime import timezone
+    return render_template('privacy.html', effective_date=datetime.now(timezone.utc).date())
 
 @view_bp.route('/admin/unverified')
 @jwt_required()
@@ -147,7 +156,6 @@ def privacy_page():
 def admin_unverified_page():  # injected by decorator
     return render_template('admin_unverified.html')
 
-@view_bp.route('/admin/admin-dashboard')  # legacy path retained for now
 @view_bp.route('/admin/dashboard')        # canonical path
 @jwt_required()
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)

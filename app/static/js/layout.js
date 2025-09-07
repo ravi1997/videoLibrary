@@ -496,12 +496,56 @@
     return String(s).replaceAll('"', "&quot;");
   }
 
+  function getCurrentRoles() {
+    const rawUser = safeParse(localStorage.getItem('user')) || {};
+    const roles = (rawUser.roles || []).map(r => String(r).toLowerCase());
+    return roles.map(v => v.replace(/^role[._-]/,'').trim());
+  }
+
+  function isLoggedIn() {
+    return !!localStorage.getItem('token');
+  }
+
+  // Enforce visibility/target on elements based on required auth/roles
+  function enforceAccessControls() {
+    const roles = new Set(getCurrentRoles());
+    const authed = isLoggedIn();
+    const current = encodeURIComponent(window.location.pathname + window.location.search);
+
+    document.querySelectorAll('[data-requires-auth]')
+      .forEach(el => {
+        if (authed) return;
+        if (el.tagName === 'A' && el.getAttribute('href')) {
+          el.setAttribute('href', `/login?next=${current}`);
+          el.setAttribute('title', 'Login required');
+        } else {
+          el.setAttribute('aria-disabled','true');
+          el.classList.add('opacity-60','pointer-events-none');
+        }
+      });
+
+    document.querySelectorAll('[data-requires-role]')
+      .forEach(el => {
+        const req = (el.getAttribute('data-requires-role') || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+        if (!req.length) return;
+        const allowed = req.some(r => roles.has(r));
+        if (allowed) return;
+        if (el.tagName === 'A' && el.getAttribute('href')) {
+          el.setAttribute('href', `/login?next=${current}`);
+          el.setAttribute('title', 'Insufficient role; login with permitted account');
+        } else {
+          el.classList.add('hidden');
+        }
+      });
+  }
+
   // ------------------ Init ------------------
   function init() {
     initTheme();
     renderAuthArea();
   bindSearchEnter();
   bindSearchButton();
+    enforceAccessControls();
 
     // Theme toggle click
     const themeBtn = document.getElementById("themeToggle");

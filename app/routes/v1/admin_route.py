@@ -1,15 +1,18 @@
 from datetime import datetime, timedelta, timezone
 from flask import Blueprint, jsonify, request, current_app
 from flask_jwt_extended import jwt_required
-from sqlalchemy import func, inspect
+from sqlalchemy import func
 
 from app.extensions import db
 from app.security_utils import coerce_uuid
-from app.models import User, Surgeon, Video, VideoSurgeon, RefreshToken, DashboardDailySnapshot
+from app.models import User, Surgeon, Video, VideoSurgeon, Token
+from app.models.video import VideoViewEvent
 from app.models.User import UserRole
 from app.models.video import Favourite
 from app.models.enumerations import Role
 from app.utils.decorator import require_roles
+from app.utils.api_helper import parse_pagination_params, build_page_dict
+from app.utils import metrics_cache
 
 """Administrative API routes (HTML page routes moved to view_bp).
 
@@ -28,8 +31,7 @@ admin_api_bp = Blueprint('admin_api_bp', __name__)
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def list_surgeons():
     q = (request.args.get('q') or '').strip().lower()
-    page = max(1, int(request.args.get('page', 1) or 1))
-    page_size = min(100, max(1, int(request.args.get('page_size', 20) or 20)))
+    page, page_size = parse_pagination_params()
     link_filter = (request.args.get('linked') or '').lower()
     sort_by = (request.args.get('sort_by') or 'id').lower()
     sort_dir = (request.args.get('sort_dir') or 'asc').lower()
@@ -62,16 +64,16 @@ def list_surgeons():
             'user_id': str(s.user_id) if s.user_id else None,
             'description': s.description or ''
         })
-    pages = max(1, (total + page_size - 1)//page_size)
-    return jsonify({'items': out, 'page': page, 'pages': pages, 'total': total, 'counts': {'linked': linked_count, 'unlinked': unlinked_count}})
+    page_dict = build_page_dict(out, page, page_size, total)
+    page_dict['counts'] = {'linked': linked_count, 'unlinked': unlinked_count}
+    return jsonify(page_dict)
 
 @admin_api_bp.get('/users')
 @jwt_required()
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def list_users_for_link():
     q = (request.args.get('q') or '').strip().lower()
-    page = max(1, int(request.args.get('page', 1) or 1))
-    page_size = min(100, max(1, int(request.args.get('page_size', 20) or 20)))
+    page, page_size = parse_pagination_params()
     link_filter = (request.args.get('has_surgeon') or '').lower()
     sort_by = (request.args.get('sort_by') or 'created_at').lower()
     sort_dir = (request.args.get('sort_dir') or 'desc').lower()
@@ -101,8 +103,6 @@ def list_users_for_link():
     total = users_q.count()
     users_q = users_q.order_by(sort_col)
     users = users_q.offset((page-1)*page_size).limit(page_size).all()
-    pages = max(1, (total + page_size - 1)//page_size)
-
     out = []
     for u in users:
         out.append({
@@ -111,7 +111,9 @@ def list_users_for_link():
             'email': u.email,
             'has_surgeon': bool(u.surgeon)
         })
-    return jsonify({'items': out, 'page': page, 'pages': pages, 'total': total, 'counts': {'with': with_count, 'without': without_count}})
+    page_dict = build_page_dict(out, page, page_size, total)
+    page_dict['counts'] = {'with': with_count, 'without': without_count}
+    return jsonify(page_dict)
 
 @admin_api_bp.post('/surgeons')
 @jwt_required()
@@ -130,6 +132,10 @@ def create_surgeon():
     except Exception:
         db.session.rollback()
         return jsonify({'msg': 'persist failed'}), 500
+    try:
+        metrics_cache.invalidate()
+    except Exception:
+        pass
     return jsonify({'msg': 'created', 'id': s.id}), 201
 
 @admin_api_bp.post('/surgeons/bulk/link')
@@ -155,6 +161,10 @@ def bulk_link_surgeons():
     except Exception:
         db.session.rollback()
         return jsonify({'msg': 'bulk persist failed'}), 500
+    try:
+        metrics_cache.invalidate()
+    except Exception:
+        pass
     return jsonify({'msg': 'bulk linked', 'count': updated, 'user_id': str(user.id)})
 
 @admin_api_bp.post('/surgeons/bulk/unlink')
@@ -176,6 +186,10 @@ def bulk_unlink_surgeons():
     except Exception:
         db.session.rollback()
         return jsonify({'msg': 'bulk persist failed'}), 500
+    try:
+        metrics_cache.invalidate()
+    except Exception:
+        pass
     return jsonify({'msg': 'bulk unlinked', 'count': updated})
 
 @admin_api_bp.post('/surgeons/<int:sid>/link')
@@ -198,6 +212,10 @@ def link_surgeon_user(sid):
     except Exception:
         db.session.rollback()
         return jsonify({'msg': 'persist failed'}), 500
+    try:
+        metrics_cache.invalidate()
+    except Exception:
+        pass
     return jsonify({'msg': 'linked', 'surgeon_id': surgeon.id, 'user_id': str(user.id)})
 
 @admin_api_bp.post('/surgeons/<int:sid>/unlink')
@@ -213,6 +231,10 @@ def unlink_surgeon_user(sid):
     except Exception:
         db.session.rollback()
         return jsonify({'msg': 'persist failed'}), 500
+    try:
+        metrics_cache.invalidate()
+    except Exception:
+        pass
     return jsonify({'msg': 'unlinked', 'surgeon_id': surgeon.id})
 
 @admin_api_bp.get('/surgeons/<int:sid>/detail')
@@ -255,8 +277,7 @@ def surgeon_videos(sid):
     if not s:
         return jsonify({'msg': 'not found'}), 404
     q = (request.args.get('q') or '').strip().lower()
-    page = max(1, int(request.args.get('page', 1) or 1))
-    page_size = min(100, max(1, int(request.args.get('page_size', 20) or 20)))
+    page, page_size = parse_pagination_params()
     sort_dir = (request.args.get('sort_dir') or 'desc').lower()
     surgeon_ids = [s.id]
     aggregated = False
@@ -273,7 +294,6 @@ def surgeon_videos(sid):
     total = base.count()
     order_col = Video.created_at.desc() if sort_dir == 'desc' else Video.created_at.asc()
     videos = base.order_by(order_col).offset((page-1)*page_size).limit(page_size).all()
-    pages = max(1, (total + page_size - 1)//page_size)
     items = [
         {
             'uuid': v.uuid,
@@ -288,7 +308,9 @@ def surgeon_videos(sid):
     if aggregated:
         subject['aggregated'] = True
         subject['surgeon_group'] = surgeon_group
-    return jsonify({'items': items, 'page': page, 'pages': pages, 'total': total, 'subject': subject})
+    out = build_page_dict(items, page, page_size, total)
+    out['subject'] = subject
+    return jsonify(out)
 
 @admin_api_bp.get('/users/<uid>/videos')
 @jwt_required()
@@ -297,8 +319,7 @@ def user_videos(uid):
     if not u:
         return jsonify({'msg': 'not found'}), 404
     q = (request.args.get('q') or '').strip().lower()
-    page = max(1, int(request.args.get('page', 1) or 1))
-    page_size = min(100, max(1, int(request.args.get('page_size', 20) or 20)))
+    page, page_size = parse_pagination_params()
     sort_dir = (request.args.get('sort_dir') or 'desc').lower()
     base = Video.query.filter(Video.user_id == u.id)
     if q:
@@ -306,7 +327,6 @@ def user_videos(uid):
     total = base.count()
     order_col = Video.created_at.desc() if sort_dir == 'desc' else Video.created_at.asc()
     videos = base.order_by(order_col).offset((page-1)*page_size).limit(page_size).all()
-    pages = max(1, (total + page_size - 1)//page_size)
     items = [
         {
             'uuid': v.uuid,
@@ -317,13 +337,22 @@ def user_videos(uid):
             'surgeons': len(v.surgeons)
         } for v in videos
     ]
-    return jsonify({'items': items, 'page': page, 'pages': pages, 'total': total, 'subject': {'type': 'user', 'id': str(u.id), 'username': u.username}})
+    out = build_page_dict(items, page, page_size, total)
+    out['subject'] = {'type': 'user', 'id': str(u.id), 'username': u.username}
+    return jsonify(out)
 
 @admin_api_bp.get('/dashboard/metrics')
 @jwt_required()
 @require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
 def admin_dashboard_metrics():
+    # Optional bypass
+    if request.args.get('nocache') == '1':
+        metrics_cache.invalidate()
+    cached = metrics_cache.get()
+    if cached is not None:
+        return jsonify(cached)
     metrics = _collect_admin_metrics()
+    metrics_cache.set(metrics)
     return jsonify(metrics)
 
 # Helper
@@ -390,52 +419,57 @@ def _collect_admin_metrics():
         .limit(5).all()
     top_surgeons = [ {'id': sid, 'name': name, 'videos': vc} for sid, name, vc in surgeon_video_rows ]
 
-    active_tokens = db.session.query(func.count(RefreshToken.id)).filter(RefreshToken.revoked.is_(False), RefreshToken.expires_at > now).scalar() or 0
+    active_tokens = db.session.query(func.count(Token.id)). \
+        filter(Token.token_type == 'refresh', Token.revoked.is_(False), Token.expires_at > now).scalar() or 0
 
+    # Build 90-day daily cumulative series from raw tables (no snapshot dependency)
     series_90d = []
     series_14d = []
     try:
-        try:
-            DashboardDailySnapshot.upsert_today(int(total_views), int(total_videos), int(total_users))
-        except Exception as e:
-            current_app.logger.warning(f"Dashboard snapshot upsert failed: {e}")
-            db.session.rollback()
-            try:
-                engine = db.engine
-                insp = inspect(engine)
-                if 'dashboard_daily_snapshots' not in insp.get_table_names():
-                    DashboardDailySnapshot.__table__.create(bind=engine)
-                    current_app.logger.info("Runtime-created dashboard_daily_snapshots table (apply Alembic migration to persist).")
-                    DashboardDailySnapshot.upsert_today(int(total_views), int(total_videos), int(total_users))
-            except Exception as ce:
-                current_app.logger.warning(f"Runtime creation of dashboard_daily_snapshots failed: {ce}")
-        try:
-            ninety_days = now - timedelta(days=90)
-            all_rows = DashboardDailySnapshot.query.filter(
-                DashboardDailySnapshot.day >= ninety_days.date()
-            ).order_by(DashboardDailySnapshot.day.asc()).all()
-        except Exception as e:
-            current_app.logger.warning(f"Dashboard snapshot fetch failed: {e}")
-            db.session.rollback()
-            all_rows = []
+        start_date = (now - timedelta(days=90)).date()
+        # Baselines prior to window
+        views_base = db.session.query(func.count(VideoViewEvent.id)).filter(VideoViewEvent.created_at < start_date).scalar() or 0
+        videos_base = db.session.query(func.count(Video.uuid)).filter(Video.created_at < start_date).scalar() or 0
+        users_base = db.session.query(func.count(User.id)).filter(User.created_at < start_date).scalar() or 0
+
+        # Daily counts within window
+        views_rows = db.session.query(func.date(VideoViewEvent.created_at), func.count(VideoViewEvent.id)). \
+            filter(VideoViewEvent.created_at >= start_date).group_by(func.date(VideoViewEvent.created_at)).all()
+        videos_rows = db.session.query(func.date(Video.created_at), func.count(Video.uuid)). \
+            filter(Video.created_at >= start_date).group_by(func.date(Video.created_at)).all()
+        users_rows = db.session.query(func.date(User.created_at), func.count(User.id)). \
+            filter(User.created_at >= start_date).group_by(func.date(User.created_at)).all()
+
+        views_map = {d: c for d, c in views_rows}
+        videos_map = {d: c for d, c in videos_rows}
+        users_map = {d: c for d, c in users_rows}
+
+        cum_views = int(views_base)
+        cum_videos = int(videos_base)
+        cum_users = int(users_base)
+
+        day = start_date
         prev_views = None
-        for r in all_rows:
-            delta = None
-            if prev_views is not None:
-                delta = (r.total_views - prev_views)
-            prev_views = r.total_views
-            rec = {
-                'day': r.day.isoformat(),
-                'total_views': int(r.total_views),
-                'total_videos': int(r.total_videos),
-                'total_users': int(r.total_users),
-                'views_delta': int(delta) if delta is not None else None
-            }
-            series_90d.append(rec)
+        for i in range(91):  # inclusive of today
+            dv = int(views_map.get(day, 0))
+            vv = int(videos_map.get(day, 0))
+            uv = int(users_map.get(day, 0))
+            cum_views += dv
+            cum_videos += vv
+            cum_users += uv
+            delta = None if prev_views is None else dv
+            prev_views = cum_views
+            series_90d.append({
+                'day': day.isoformat(),
+                'total_views': cum_views,
+                'total_videos': cum_videos,
+                'total_users': cum_users,
+                'views_delta': delta
+            })
+            day = day + timedelta(days=1)
         series_14d = series_90d[-14:]
     except Exception as e:
-        current_app.logger.exception(f"Unexpected error assembling time series: {e}")
-        db.session.rollback()
+        current_app.logger.exception('series_build_failed', exc_info=True)
 
     return {
         'generated_at': now.isoformat(),

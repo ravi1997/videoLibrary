@@ -7,9 +7,8 @@ from faker import Faker
 from flask_migrate import Migrate
 
 # extensions.py
-from mongoengine import connect
-
-mongo = connect  # alias for clarity in create_app
+# MongoDB support was removed during backend simplification. If reintroducing
+# Mongo in the future, wire it up here and import in app/__init__.py.
 
 fake = Faker()
 

@@ -1,5 +1,6 @@
 # app/tasks.py
 import os
+import logging
 import threading
 import time
 from typing import Optional, Dict
@@ -14,6 +15,7 @@ from app.models.enumerations import VideoStatus
 
 _queue = []
 _lock = threading.Lock()
+logger = logging.getLogger('tasks')
 
 
 def extract_thumbnail_ffmpeg(video_path, video_uuid, output_dir="thumbnails", time="00:00:01"):
@@ -62,7 +64,7 @@ def _worker_loop(app):
             continue
 
         try:
-            print(f"🔁 Converting: {filepath} -> video_id={video_id}")
+            logger.info(f"Converting: %s -> video_id=%s", filepath, video_id)
             with app.app_context():
                 _mark_status(video_id, VideoStatus.PENDING)
 
@@ -70,10 +72,10 @@ def _worker_loop(app):
 
             with app.app_context():
                 _on_success(video_id, master_path)
-                print(f"✅ Done: {video_id} -> {master_path}")
+                logger.info("Done: %s -> %s", video_id, master_path)
 
         except Exception as e:
-            print(f"❌ Error converting {video_id}: {e}")
+            logger.exception("Error converting %s: %s", video_id, e)
             with app.app_context():
                 _on_fail(video_id, error=str(e))
 
@@ -169,11 +171,11 @@ def enqueue_transcode(video_uuid: str) -> None:
 
 
 def _mark_status(video_id: str, status: VideoStatus):
+    """Efficient status update without loading the entity."""
     try:
-        v = Video.query.filter_by(uuid=video_id).first()
-        if not v:
-            return
-        v.status = status
+        from sqlalchemy import update
+        stmt = update(Video).where(Video.uuid == video_id).values(status=status)
+        db.session.execute(stmt)
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -181,12 +183,11 @@ def _mark_status(video_id: str, status: VideoStatus):
 
 
 def _on_success(video_id: str, master_path: str):
+    """Set processed status and update file path via single UPDATE."""
     try:
-        v = Video.query.filter_by(uuid=video_id).first()
-        if not v:
-            return
-        v.file_path = master_path
-        v.status = VideoStatus.PROCESSED
+        from sqlalchemy import update
+        stmt = update(Video).where(Video.uuid == video_id).values(file_path=master_path, status=VideoStatus.PROCESSED)
+        db.session.execute(stmt)
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -194,11 +195,11 @@ def _on_success(video_id: str, master_path: str):
 
 
 def _on_fail(video_id: str, error: Optional[str] = None):
+    """Mark video failed without loading it."""
     try:
-        v = Video.query.filter_by(uuid=video_id).first()
-        if not v:
-            return
-        v.status = VideoStatus.FAILED
+        from sqlalchemy import update
+        stmt = update(Video).where(Video.uuid == video_id).values(status=VideoStatus.FAILED)
+        db.session.execute(stmt)
         db.session.commit()
     except Exception:
         db.session.rollback()

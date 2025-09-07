@@ -5,7 +5,7 @@ import random
 from flask import Blueprint, current_app, make_response, render_template_string, request, jsonify
 from app.config import Config
 from app.models.User import User, UserRole
-from app.models.TokenBlocklist import TokenBlocklist
+from app.models import Token
 from app.models.enumerations import Role
 from app.schemas.user_schema import UserSchema
 from app.schemas.login_schema import LoginSchema
@@ -18,7 +18,6 @@ from app.utils.decorator import require_roles
 from app.security_utils import rate_limit, ip_and_path_key, ip_key, audit_log
 from app.utils.audit_helpers import log_login_failed
 from app.extensions import db
-from app.models.RefreshToken import RefreshToken
 from werkzeug.utils import secure_filename
 from app.utils.uploads import ALLOWED_ID_EXT, ALLOWED_ID_MIMES
 import os
@@ -27,6 +26,7 @@ from flask import send_file
 
 from app.utils.services.cdac import cdac_service
 from app.utils.services.sms import send_sms
+from app.utils import metrics_cache
 
 auth_bp = Blueprint('auth_bp', __name__)
 user_schema = UserSchema()
@@ -88,6 +88,10 @@ def register():
 
         db.session.add(user)
         db.session.commit()
+        try:
+            metrics_cache.invalidate()
+        except Exception:
+            pass
         current_app.logger.info(f"✅ User registered successfully: {user.username} ({user.email})")
         audit_log('register_success', actor_id=user.id)
         return jsonify(message="User registered"), 201
@@ -193,7 +197,7 @@ def login():
     # Issue refresh token (persisted, hashed)
     refresh_ttl = timedelta(minutes=Config.REFRESH_TOKEN_EXPIRES_MINUTES)
     try:
-        rt_obj, refresh_plain = RefreshToken.create_for_user(user.id, refresh_ttl, request.headers.get('User-Agent'), request.remote_addr)
+        rt_obj, refresh_plain = Token.create_refresh_for_user(user.id, refresh_ttl, request.headers.get('User-Agent'), request.remote_addr)
     except Exception:
         current_app.logger.exception("Failed creating refresh token")
         return _htmx_or_json_error("Internal error", 500)
@@ -261,8 +265,8 @@ def refresh_token():
     supplied = (data.get('refresh_token') or '').strip()
     if not supplied:
         return jsonify({'msg': 'refresh_token required'}), 400
-    token_hash = RefreshToken.hash_token(supplied)
-    rt = RefreshToken.query.filter_by(token_hash=token_hash).first()
+    token_hash = Token.hash_token(supplied)
+    rt = Token.query.filter_by(token_hash=token_hash, token_type='refresh').first()
     if not rt:
         audit_log('refresh_failed', detail='token_not_found')
         return jsonify({'msg': 'invalid refresh token'}), 401
@@ -278,7 +282,7 @@ def refresh_token():
 
     access_token = issue_access_token(user)
     refresh_ttl = timedelta(minutes=Config.REFRESH_TOKEN_EXPIRES_MINUTES)
-    new_rt, new_plain = RefreshToken.create_for_user(user.id, refresh_ttl, request.headers.get('User-Agent'), request.remote_addr)
+    new_rt, new_plain = Token.create_refresh_for_user(user.id, refresh_ttl, request.headers.get('User-Agent'), request.remote_addr)
     rt.revoke(replaced_by=new_rt)
     try:
         db.session.commit()
@@ -1014,8 +1018,7 @@ def logout():
     exp_timestamp = jwt_payload["exp"]
     expires_at = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc)
 
-    blocklist = TokenBlocklist(jti=jti, expires_at=expires_at)
-    db.session.add(blocklist)
+    db.session.add(Token(token_type='block', jti=jti, created_at=datetime.now(timezone.utc), expires_at=expires_at))
 
     # Optional body refresh_token to revoke proactively
     try:
@@ -1024,8 +1027,8 @@ def logout():
         data = request.form or {}
     supplied = (data.get('refresh_token') or '').strip()
     if supplied:
-        h = RefreshToken.hash_token(supplied)
-        rt = RefreshToken.query.filter_by(token_hash=h).first()
+        h = Token.hash_token(supplied)
+        rt = Token.query.filter_by(token_hash=h, token_type='refresh').first()
         if rt and rt.is_active():
             rt.revoke()
 

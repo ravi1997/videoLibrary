@@ -250,7 +250,7 @@ class User(db.Model):
                 user.increment_failed_logins()
             return None
 
-        user.last_login = datetime.utcnow()
+        user.last_login = datetime.now(timezone.utc)
         user.reset_failed_logins()
         db.session.commit()
         return user

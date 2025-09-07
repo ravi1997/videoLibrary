@@ -1,6 +1,5 @@
 import bcrypt
 from marshmallow import Schema, fields, validate, post_load, EXCLUDE
-from sqlalchemy import null
 from app.models.User import User, UserSettings, UserType, Role
 from marshmallow_enum import EnumField
 

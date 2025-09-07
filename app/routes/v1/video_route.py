@@ -1,17 +1,11 @@
-# app/routes/api.py
-# One-file bundle: Marshmallow schemas + API routes for a YouTube-like experience
-
 import hashlib
 import json
 import hashlib as _hashlib
-from math import ceil
-import mimetypes
 import subprocess
 from flask_jwt_extended import get_jwt_identity
 import os
-from datetime import datetime, timedelta,timezone
+from datetime import datetime, timedelta, timezone
 from typing import List
-from urllib import response
 import uuid
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -35,10 +29,11 @@ from app.models.enumerations import Role, VideoStatus
 
 from werkzeug.utils import secure_filename
 from app.tasks import enqueue_transcode, extract_thumbnail_ffmpeg
+from app.utils import metrics_cache
 from app.utils.decorator import require_roles  # we'll define in #2
 from app.security_utils import rate_limit, ip_and_path_key, audit_log, coerce_uuid
 from app.utils.uploads import ALLOWED_VIDEO_EXT, VIDEO_MIME_PREFIX, get_max_video_mb
-from flask_jwt_extended import get_jwt_identity
+from app.utils.api_helper import parse_pagination_params
 
 video_schema = VideoMetaInputSchema()
 videos_schema = VideoMetaInputSchema(many=True)
@@ -61,12 +56,22 @@ video_bp = Blueprint("video_bp", __name__)
 
 
 def paginate_query(query, schema, default_per_page=12):
-    """Utility: paginate a SQLAlchemy query and return JSON with meta."""
-    try:
-        page = int(request.args.get("page", 1))
-        per_page = int(request.args.get("per_page", default_per_page))
-    except ValueError:
-        abort(400, description="Invalid pagination params")
+    """Utility: paginate a SQLAlchemy query and return JSON with meta.
+
+    Accepts either `per_page` or `page_size` (alias) as request args.
+    Keeps response keys as {items, page, per_page, total, pages} for compatibility.
+    """
+    # Parse page via helper (clamps to >=1)
+    page, page_size = parse_pagination_params(default_page=1, default_page_size=default_per_page, max_page_size=100)
+    # Allow explicit per_page to override alias
+    per_page_arg = request.args.get("per_page")
+    if per_page_arg is not None:
+        try:
+            per_page = max(1, int(per_page_arg))
+        except ValueError:
+            abort(400, description="Invalid pagination params")
+    else:
+        per_page = page_size
 
     page_obj = query.paginate(page=page, per_page=per_page, error_out=False)
     return jsonify({
@@ -296,9 +301,15 @@ def get_watch_history():
     user_id = coerce_uuid(get_jwt_identity())
 
     # ---- query params ----
-    page = request.args.get("page", 1, type=int)
-    page_size = request.args.get("page_size", 12, type=int)
-    page_size = max(1, min(page_size, 100))  # clamp 1..100
+    from app.utils.api_helper import parse_pagination_params
+    page, page_size = parse_pagination_params(default_page=1, default_page_size=12, max_page_size=100)
+    # allow explicit per_page alias to override page_size
+    per_page_arg = request.args.get('per_page')
+    if per_page_arg is not None:
+        try:
+            page_size = max(1, min(int(per_page_arg), 100))
+        except Exception:
+            pass
     # recent | alpha | progress
     sort = (request.args.get("sort") or "recent").lower()
 
@@ -681,6 +692,10 @@ def upload_video():
 
         db.session.add(video)
         db.session.commit()
+        try:
+            metrics_cache.invalidate()
+        except Exception:
+            pass
 
         enqueue_transcode(video.uuid)
         extract_thumbnail_ffmpeg(path, video_uuid, output_dir=THUMBNAILS_DIR)
@@ -717,7 +732,7 @@ def _cleanup_stale_sessions(max_age_hours: int = 24):
     Called opportunistically (not guaranteed) to prevent accumulation.
     """
     global _last_cleanup_ts
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     # run at most once per hour
     if _last_cleanup_ts and (now - _last_cleanup_ts).total_seconds() < 3600:
         return
@@ -883,7 +898,8 @@ def init_chunk_upload():
         "chunk_size": chunk_size,
         "total_chunks": total_chunks,
         "user_id": user_uuid,
-        "created_at": datetime.utcnow().isoformat() + "Z",
+        # RFC3339 UTC timestamp
+        "created_at": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
         "hash_algorithm": "sha256",
         "file_sha256": (data.get('file_sha256') or '').lower() if data.get('file_sha256') else None
     }
@@ -1137,7 +1153,6 @@ def create_video():
     if tag_names:
         tags = []
         for tag in tag_names:
-            print("tag : ", tag)
             name = tag.get("name", "").strip().title()
             tag = Tag.query.filter_by(name=name).first()
             if not tag:
@@ -1167,6 +1182,10 @@ def create_video():
         video.surgeons = surgeons
 
     db.session.commit()
+    try:
+        metrics_cache.invalidate()
+    except Exception:
+        pass
 
     try:
         audit_log('video_metadata_update', actor_id=user_uuid, detail=f'video={video.uuid}')
@@ -1233,6 +1252,10 @@ def delete_video(video_id):
         return jsonify({"error": "Not owner"}), 403
     db.session.delete(video)
     db.session.commit()
+    try:
+        metrics_cache.invalidate()
+    except Exception:
+        pass
     try:
         audit_log('video_delete', actor_id=deleter_id, detail=f'video={video_id}')
     except Exception:
@@ -1377,14 +1400,11 @@ def surgeons_list():
 @video_bp.route("/favorite", methods=["GET"])
 @jwt_required()
 def favourites_list():
-    import uuid as _uuid
     user_id = get_jwt_identity()
     uid = coerce_uuid(user_id)
     q = Video.query.join(Video.favourites).filter(Favourite.user_id == uid)
     
     sort = request.args.get("sort", "recent")  # "most_viewed"|"recent"
-    page = request.args.get("page", default=1, type=int)
-    per_page = request.args.get("page_size", type=int) or request.args.get("per_page", default=12, type=int)
 
     if sort == "recent":
         q = q.order_by(Video.created_at.desc())
@@ -1416,7 +1436,6 @@ def favourite_status(video_id):
 @video_bp.route("/<string:video_id>/favorite", methods=["POST"])
 @jwt_required()
 def add_favourite(video_id):
-    import uuid as _uuid
     user_id = get_jwt_identity()
     uid = coerce_uuid(user_id)
     existing = Favourite.query.filter_by(user_id=uid, video_id=video_id).first()
@@ -1426,6 +1445,10 @@ def add_favourite(video_id):
     try:
         db.session.add(fav)
         db.session.commit()
+        try:
+            metrics_cache.invalidate()
+        except Exception:
+            pass
     except Exception as e:
         db.session.rollback()
         current_app.logger.warning(f"Duplicate favourite suppressed for user {user_id} video {video_id}: {e}")
@@ -1438,13 +1461,16 @@ def add_favourite(video_id):
 @video_bp.route("/<string:video_id>/favorite", methods=["DELETE"])
 @jwt_required()
 def remove_favourite(video_id):
-    import uuid as _uuid
     user_id = get_jwt_identity()
     uid = coerce_uuid(user_id)
     favourite = Favourite.query.filter_by(user_id=uid, video_id=video_id).first()
     if favourite:
         db.session.delete(favourite)
         db.session.commit()
+        try:
+            metrics_cache.invalidate()
+        except Exception:
+            pass
     try:
         audit_log('favorite_remove', actor_id=user_id, detail=f'video={video_id}')
     except Exception:
@@ -1475,8 +1501,16 @@ def search_videos():
     date_to = request.args.get("date_to")
     
     sort = request.args.get("sort", "recent")  # "views" or "recent"
-    page = request.args.get("page", default=1, type=int)
-    per_page = request.args.get("per_page", default=12, type=int)
+    from app.utils.api_helper import parse_pagination_params
+    page, page_size = parse_pagination_params(default_page=1, default_page_size=12, max_page_size=100)
+    per_page_arg = request.args.get("per_page")
+    if per_page_arg is not None:
+        try:
+            per_page = max(1, int(per_page_arg))
+        except Exception:
+            return jsonify({"error": "Invalid pagination params"}), 400
+    else:
+        per_page = page_size
 
     tags = request.args.getlist("tags")
 

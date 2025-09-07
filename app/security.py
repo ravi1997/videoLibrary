@@ -1,14 +1,20 @@
 from flask_jwt_extended import JWTManager
-from app.models.TokenBlocklist import TokenBlocklist
+from app.models import Token
 from app.models.User import User
 from app.extensions import db
 from uuid import UUID
+from datetime import datetime, timezone
 
 def init_jwt_callbacks(jwt: JWTManager):
     @jwt.token_in_blocklist_loader
     def is_revoked(jwt_header, jwt_payload):  # pragma: no cover
         jti = jwt_payload.get("jti")
-        return TokenBlocklist.query.filter_by(jti=jti).first() is not None
+        # Consider token blocked if a block entry exists and not expired
+        if not jti:
+            return False
+        now = datetime.now(timezone.utc)
+        q = Token.query.filter(Token.token_type == 'block', Token.jti == jti, Token.expires_at > now)
+        return q.first() is not None
 
     @jwt.additional_claims_loader
     def add_claims(identity):  # pragma: no cover

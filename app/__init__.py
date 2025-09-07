@@ -16,7 +16,7 @@ from .commands.user_commands import create_user, create_superadmin, rotate_super
 from app.routes import register_blueprints
 
 from .config import Config
-from .extensions import mongo, jwt, db, migrate,ma
+from .extensions import jwt, db, migrate, ma
 from .security import init_jwt_callbacks
 from .models import *
 from app.models.enumerations import Role
@@ -46,6 +46,49 @@ def configure_logging(app):
 
     app.logger.setLevel(logging.DEBUG)
     app.logger.info("Logging configured.")
+
+    # Wire internal library/module loggers to use the same handlers/formatting
+    # Avoid duplicate emission by disabling propagation and attaching app handlers.
+    def _wire_logger(name: str, level: int | None = None):
+        try:
+            lg = logging.getLogger(name)
+            lg.propagate = False
+            # Clear any pre-existing handlers to prevent double-logging
+            lg.handlers = []
+            for h in app.logger.handlers:
+                lg.addHandler(h)
+            lg.setLevel(level if level is not None else app.logger.level)
+            app.logger.debug(f"Logger wired: %s", name)
+        except Exception:
+            # Non-fatal; continue
+            pass
+
+    # Wire known internal module loggers. Add here when new modules introduce
+    # their own named loggers to keep formatting consistent.
+    names_levels = {
+        'tasks': logging.INFO,
+        'auth': logging.INFO,
+        'security_utils': logging.INFO,
+    }
+    # Allow env overrides: APP_LOG_LEVEL_<LOGGER>=DEBUG|INFO|WARNING|ERROR|CRITICAL
+    lvl_map = {
+        'CRITICAL': logging.CRITICAL,
+        'ERROR': logging.ERROR,
+        'WARNING': logging.WARNING,
+        'INFO': logging.INFO,
+        'DEBUG': logging.DEBUG,
+        'NOTSET': logging.NOTSET,
+    }
+    for k, v in os.environ.items():
+        if not k.startswith('APP_LOG_LEVEL_'):
+            continue
+        name = k[len('APP_LOG_LEVEL_'):].strip().lower()
+        level = lvl_map.get((v or '').strip().upper())
+        if not name or level is None:
+            continue
+        names_levels[name] = level
+    for name, lvl in names_levels.items():
+        _wire_logger(name, lvl)
 
 
 def create_app(config_class=Config):
@@ -210,33 +253,7 @@ def create_app(config_class=Config):
     def _server_error(e):
         app.logger.exception("Unhandled server error")
         return jsonify({"error": "internal_server_error"}), 500
-    # # Init MongoDB
-    # try:
-    #     db_name = app.config['MONGODB_SETTINGS']['db']
-    #     username = app.config['MONGODB_SETTINGS']['username']
-    #     password = app.config['MONGODB_SETTINGS'].get('password')
-    #     host = app.config['MONGODB_SETTINGS'].get('host')
-    #     port = app.config['MONGODB_SETTINGS'].get('port')
-    #     auth_source = app.config['MONGODB_SETTINGS'].get('auth_source')
-
-    #     # Construct the connection string
-    #     connection_string = f"mongodb://{host}:{port}/{db_name}?authSource={auth_source}"
-
-    #     mongo(host=connection_string)
-    #     # mongo(**app.config['MONGODB_SETTINGS'])
-    #     app.logger.info("MongoDB connected: %s", connection_string)
-
-    #     # Extract parameters from connection string
-    #     client = MongoClient(connection_string)
-    #     # Run a ping command
-    #     client.admin.command('ping')
-    #     print("✅ MongoDB connection successful.")
-    #     app.logger.info("✅ MongoDB connection successful.")
-
-    # except ConnectionFailure as e:
-    #     app.logger.error("❌ MongoDB connection failed: %s", e)
-    # except Exception as e:
-    #     app.logger.exception("❌ MongoDB connection failed: %s", e)
+    # MongoDB connectivity (legacy) removed; SQLAlchemy is the sole datastore.
 
     Compress(app)
     CORS(app,supports_credentials=True)

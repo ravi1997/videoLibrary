@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from flask import Blueprint, jsonify, request, current_app
 from flask_jwt_extended import jwt_required
 from sqlalchemy import func, inspect
+from app.utils.api_helper import parse_pagination_params
 
 from app.extensions import db
 from app.security_utils import coerce_uuid
@@ -12,13 +13,14 @@ from app.models.video import Favourite
 from app.models.enumerations import Role
 from app.utils.decorator import require_roles
 from app.security_utils import audit_log
+from app.utils.api_helper import parse_pagination_params
 
 # Only API blueprint (page route moved to view_route view_bp)
 super_api_bp = Blueprint('super_api_bp', __name__)
 
 def build_super_overview_context():
     from app.models import AuditLog, SystemSetting
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     # Basic aggregated metrics
     total_users = User.query.count()
     admins = db.session.query(UserRole).filter(UserRole.role == Role.ADMIN).count()
@@ -265,8 +267,15 @@ def list_audit():
     event = (request.args.get('event') or '').strip()
     user_id = (request.args.get('user_id') or '').strip()
     target_id = (request.args.get('target_user_id') or '').strip()
-    limit = min(200, max(1, int(request.args.get('limit', 50) or 50)))
-    offset = max(0, int(request.args.get('offset', 0) or 0))
+    # Support either offset/limit (legacy) or page/page_size alias
+    use_page = ('page' in request.args) or ('page_size' in request.args)
+    if use_page:
+        page, page_size = parse_pagination_params(default_page=1, default_page_size=50, max_page_size=200)
+        limit = page_size
+        offset = max(0, (page - 1) * page_size)
+    else:
+        limit = min(200, max(1, int(request.args.get('limit', 50) or 50)))
+        offset = max(0, int(request.args.get('offset', 0) or 0))
     q = AuditLog.query
     if event:
         q = q.filter(AuditLog.event == event)
@@ -293,8 +302,7 @@ def super_list_users():
     verified_filter = (request.args.get('verified') or '').strip().lower()  # yes|no
     sort_by = (request.args.get('sort_by') or 'created_at').lower()
     sort_dir = (request.args.get('sort_dir') or 'desc').lower()
-    page = max(1, int(request.args.get('page', 1) or 1))
-    page_size = min(100, max(1, int(request.args.get('page_size', 25) or 25)))
+    page, page_size = parse_pagination_params(default_page=1, default_page_size=25, max_page_size=100)
 
     base = User.query
     if q:

@@ -15,15 +15,7 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your_jwt_secret")
 
-    # MongoDB (default fallback)
-    MONGODB_SETTINGS = {
-        'db': os.getenv("MONGODB_DB", "myflaskdb"),
-        'host': os.getenv("MONGODB_HOST", "localhost"),
-        'port': int(os.getenv("MONGODB_PORT", 27017)),
-        'username': os.getenv("MONGODB_USER", None),
-        'password': os.getenv("MONGODB_PASS", None),
-        'auth_source': os.getenv("MONGODB_AUTH_SOURCE", "admin"),
-    }
+    # MongoDB support removed. All persistence uses SQLAlchemy.
 
     # Admin user config
     ADMIN_USERNAME = os.getenv("DEVELOPMENT_ADMIN_USERNAME", "admin")
@@ -102,11 +94,7 @@ class DevelopmentConfig(Config):
     # Permit insecure cookies in dev for convenience
     JWT_COOKIE_SECURE = False
     JWT_COOKIE_CSRF_PROTECT = False
-    MONGODB_SETTINGS = {
-        'db': os.getenv("DEV_MONGODB_DB", "devdb"),
-        'host': os.getenv("DEV_MONGODB_HOST", "localhost"),
-        'port': int(os.getenv("DEV_MONGODB_PORT", 27017)),
-    }
+    # MongoDB support removed in development.
 
 
 class TestingConfig(Config):
@@ -115,11 +103,7 @@ class TestingConfig(Config):
     SQLALCHEMY_DATABASE_URI = os.getenv("TEST_DATABASE_URI", "sqlite:///test.db")
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "test-secret")
 
-    MONGODB_SETTINGS = {
-        'db': os.getenv("TEST_MONGODB_DB", "testdb"),
-        'host': os.getenv("TEST_MONGODB_HOST", "localhost"),
-        'port': int(os.getenv("TEST_MONGODB_PORT", 27017)),
-    }
+    # MongoDB support removed in testing.
 
     ADMIN_USERNAME = os.getenv("TEST_ADMIN_USERNAME", "test_admin")
     ADMIN_EMAIL = os.getenv("TEST_ADMIN_EMAIL", "test_admin@example.com")
@@ -133,10 +117,4 @@ class TestingConfig(Config):
 class ProductionConfig(Config):
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URI", "sqlite:///prod.db")
     MY_ENVIRONMENT = "PRODUCTION"
-    MONGODB_SETTINGS = {
-        'db': os.getenv("MONGODB_DB", "prodflaskdb"),
-        'host': os.getenv("MONGODB_HOST", "localhost"),
-        'port': int(os.getenv("MONGODB_PORT", 27017)),
-        'username': os.getenv("MONGODB_USER", None),
-        'password': os.getenv("MONGODB_PASS", None),
-    }
+    # MongoDB support removed in production.
