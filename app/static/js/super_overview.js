@@ -1,4 +1,5 @@
 (function(){
+  const BASE = '/video';
   const maintBtn = document.getElementById('toggleMaint');
   const maintState = document.getElementById('maintState');
   if(maintBtn){
@@ -9,7 +10,7 @@
       if(reasonInput && next==='on') payload.reason = reasonInput.value.trim();
       maintBtn.disabled = true; maintBtn.textContent = '...';
       try {
-        const r = await fetch('/api/v1/super/maintenance', {method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify(payload)});
+        const r = await fetch(BASE + '/api/v1/super/maintenance', {method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify(payload)});
         if(r.ok){
           const data = await r.json();
           maintState.textContent = data.mode;
@@ -28,7 +29,7 @@
         const p = {...overviewParams};
         delete p.last_id; delete p.limit;
         const qs = new URLSearchParams(p).toString();
-        const r = await fetch(`/api/v1/super/audit/export${qs?('?' + qs):''}`);
+        const r = await fetch(`${BASE}/api/v1/super/audit/export${qs?('?' + qs):''}`);
         if(r.ok){
           const data = await r.json();
           const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
@@ -109,7 +110,7 @@
     const p = {...params};
     if(append && overviewCursor) p.last_id = overviewCursor;
     const qs = new URLSearchParams(p).toString();
-    const r = await fetch(`/api/v1/super/audit/list?${qs}`);
+    const r = await fetch(`${BASE}/api/v1/super/audit/list?${qs}`);
     if(!r.ok) return;
     const data = await r.json();
     if(!auditTable) return;

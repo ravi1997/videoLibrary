@@ -1,4 +1,5 @@
 (function(){
+  const BASE = '/video';
   const exportBtn = document.getElementById('exportAudit');
   const auditForm = document.getElementById('auditFilter');
   const resetBtn = document.getElementById('resetAudit');
@@ -27,7 +28,7 @@
     const p = {...params};
     if(append && nextCursor) p.last_id = nextCursor;
     const qs = new URLSearchParams(p).toString();
-    const r = await fetch(`/api/v1/super/audit/list?${qs}`);
+    const r = await fetch(`${BASE}/api/v1/super/audit/list?${qs}`);
     if(!r.ok) return;
     const data = await r.json();
     renderRows(data.items || [], append);
@@ -75,7 +76,7 @@
         // Remove pagination specific params
         delete p.last_id; delete p.limit; // server will use its own export limit
         const qs = new URLSearchParams(p).toString();
-        const r = await fetch(`/api/v1/super/audit/export${qs?('?' + qs):''}`);
+        const r = await fetch(`${BASE}/api/v1/super/audit/export${qs?('?' + qs):''}`);
         if(r.ok){
           const data = await r.json();
           const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});

@@ -1,3 +1,4 @@
+from flask_jwt_extended.exceptions import CSRFError, NoAuthorizationError, JWTExtendedException
 from urllib.parse import unquote
 from datetime import datetime
 from flask import Blueprint, current_app, render_template, request, jsonify, abort, redirect, url_for
@@ -9,7 +10,7 @@ from app.models.video import Video, Category
 from app.schemas.user_schema import UserSchema
 from flask_jwt_extended import (
     create_access_token, jwt_required,
-    get_jwt, set_access_cookies, unset_jwt_cookies
+    get_jwt, set_access_cookies, unset_jwt_cookies, verify_jwt_in_request
 )
 from app.utils.decorator import require_roles
 view_bp = Blueprint('view_bp', __name__)
@@ -43,6 +44,11 @@ def video(video_id: str):
 
 @view_bp.route('/')
 def index():
+    try:
+        verify_jwt_in_request()
+    except NoAuthorizationError as e:
+        current_app.logger.debug(f"Anonymous access to index page: {e}")
+        return render_template('login.html')
     videos = Video.query.order_by(Video.created_at.desc()).all()
     return render_template('index.html', videos=videos)
 
@@ -139,7 +145,7 @@ def playlist_play_page(pid: int):
     return render_template('playlist_play.html', pid=pid)
 
 # Video edit page (uploader/admin/superadmin)
-@view_bp.route('/video/<video_id>/edit')
+@view_bp.route('/<video_id>/edit')
 @jwt_required()
 @require_roles(Role.UPLOADER.value, Role.ADMIN.value, Role.SUPERADMIN.value)
 def video_edit_page(video_id):
@@ -184,7 +190,7 @@ def admin_dashboard_page():
 
 @view_bp.route('/linked-video/<int:surgeon_id>')
 @jwt_required()
-@require_roles(Role.ADMIN.value, Role.SUPERADMIN.value)
+@require_roles(Role.ADMIN.value, Role.SUPERADMIN.value,Role.VIEWER.value)
 def linked_videos_page_alias_surgeon(surgeon_id):
     """Alias route so frontend can link to /linked-video/<surgeon_id>."""
     return render_template('linked_videos.html', surgeon_id=surgeon_id, user_id=None)

@@ -1,5 +1,6 @@
 // Superadmin User Management page logic (externalized for CSP compliance)
 (function(){
+  const BASE = '/video';
   const tableBody = document.querySelector('#usersTable tbody');
   if(!tableBody) return; // page not present
   const form = document.getElementById('filterForm');
@@ -105,7 +106,7 @@
     }
     lastQuery = Object.fromEntries(fd.entries());
     const params = new URLSearchParams(lastQuery).toString();
-    const res = await fetch(`/api/v1/super/users?${params}`, { headers: { ...authHeader() }});
+    const res = await fetch(`${BASE}/api/v1/super/users?${params}`, { headers: { ...authHeader() }});
     if(!res.ok){ console.error('Failed to load users'); if(loading){loading.classList.add('hidden'); loading.classList.remove('flex');} return; }
     const data = await res.json();
     renderUsers(data.items);
@@ -156,7 +157,7 @@
       const docBadge = u.document_submitted ? '<span class="inline-block px-2 py-0.5 text-[10px] rounded bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-100">Yes</span>' : '<span class="inline-block px-2 py-0.5 text-[10px] rounded bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200">No</span>';
       tr.innerHTML = `
         <td><input type="checkbox" class="row-select" value="${u.id}" ${isSelected?'checked':''}></td>
-  <td><a class="text-blue-600 hover:underline" href="/admin/super/users/${u.id}/activity">${escapeHtml(u.username||'')}</a></td>
+  <td><a class="text-blue-600 hover:underline" href="${BASE}/admin/super/users/${u.id}/activity">${escapeHtml(u.username||'')}</a></td>
         <td class="truncate max-w-[220px]" title="${escapeHtml(u.email||'')}">${escapeHtml(u.email||'')}</td>
         <td class="space-x-1">${roles}</td>
         <td>${u.is_active ? 'Yes' : 'No'}</td>
@@ -209,10 +210,10 @@
   return;
     }
     let endpoint;
-    if(action==='activate') endpoint = `/api/v1/super/users/${id}/activate`;
-    else if(action==='deactivate') endpoint = `/api/v1/super/users/${id}/deactivate`;
-    else if(action==='lock') endpoint = `/api/v1/super/users/${id}/lock`;
-    else if(action==='unlock') endpoint = `/api/v1/super/users/${id}/unlock`;
+    if(action==='activate') endpoint = `${BASE}/api/v1/super/users/${id}/activate`;
+    else if(action==='deactivate') endpoint = `${BASE}/api/v1/super/users/${id}/deactivate`;
+    else if(action==='lock') endpoint = `${BASE}/api/v1/super/users/${id}/lock`;
+    else if(action==='unlock') endpoint = `${BASE}/api/v1/super/users/${id}/unlock`;
     if(!endpoint) return;
   await fetch(endpoint, {method:'POST', headers: jsonHeaders()});
     fetchUsers(currentPage);
@@ -266,12 +267,12 @@
         if(!ok) return;
       }
       let endpoint;
-      if(action==='activate') endpoint = '/api/v1/super/users/bulk/activate';
-      else if(action==='deactivate') endpoint = '/api/v1/super/users/bulk/deactivate';
-      else if(action==='lock') endpoint = '/api/v1/super/users/bulk/lock';
-      else if(action==='unlock') endpoint = '/api/v1/super/users/bulk/unlock';
-      else if(action==='verify') endpoint = '/api/v1/auth/bulk/verify-users';
-      else if(action==='discard') endpoint = '/api/v1/auth/bulk/discard-users';
+      if(action==='activate') endpoint = `${BASE}/api/v1/super/users/bulk/activate`;
+      else if(action==='deactivate') endpoint = `${BASE}/api/v1/super/users/bulk/deactivate`;
+      else if(action==='lock') endpoint = `${BASE}/api/v1/super/users/bulk/lock`;
+      else if(action==='unlock') endpoint = `${BASE}/api/v1/super/users/bulk/unlock`;
+      else if(action==='verify') endpoint = `${BASE}/api/v1/auth/bulk/verify-users`;
+      else if(action==='discard') endpoint = `${BASE}/api/v1/auth/bulk/discard-users`;
       if(!endpoint) return;
   await fetch(endpoint,{method:'POST', headers: jsonHeaders(), body: JSON.stringify({user_ids:[...selected]})});
       fetchUsers(currentPage);
@@ -295,11 +296,11 @@
   document.getElementById('saveRolesBtn').addEventListener('click', async ()=>{
     const chosen = [...document.querySelectorAll('#rolesForm input[type=checkbox]:checked')].map(cb=>cb.value);
     if(editingUserId){
-  await fetch(`/api/v1/super/users/${editingUserId}/roles`, {method:'POST', headers: jsonHeaders(), body: JSON.stringify({roles: chosen})});
+  await fetch(`${BASE}/api/v1/super/users/${editingUserId}/roles`, {method:'POST', headers: jsonHeaders(), body: JSON.stringify({roles: chosen})});
     } else if(selected.size){
   const ok = await openConfirm({title:'Apply Roles', message:'Apply selected roles to all chosen users?'});
   if(!ok) return;
-  await fetch('/api/v1/super/users/bulk/roles', {method:'POST', headers: jsonHeaders(), body: JSON.stringify({user_ids:[...selected], roles: chosen})});
+  await fetch(`${BASE}/api/v1/super/users/bulk/roles`, {method:'POST', headers: jsonHeaders(), body: JSON.stringify({user_ids:[...selected], roles: chosen})});
     }
   closeModal();
     fetchUsers(currentPage);
@@ -459,7 +460,7 @@
     body.innerHTML = '<div class="text-xs text-gray-500">Loading...</div>';
     docActions.innerHTML = '';
     try {
-      const r = await fetch(`/api/v1/super/users/${verifyTargetId}`, {headers: authHeader()});
+      const r = await fetch(`${BASE}/api/v1/super/users/${verifyTargetId}`, {headers: authHeader()});
       if(!r.ok){ body.innerHTML = '<div class="text-xs text-red-600">Failed to load user.</div>'; return; }
       const data = await r.json();
       const u = data.user || {};
@@ -490,7 +491,7 @@
       if(!verifyTargetId) return;
       const ok = await openConfirm({title:'Confirm Verification', message:'Verify this user?'});
       if(!ok) return;
-      await fetch('/api/v1/auth/verify-user', {method:'POST', headers: jsonHeaders(), body: JSON.stringify({user_id: verifyTargetId})});
+      await fetch(`${BASE}/api/v1/auth/verify-user`, {method:'POST', headers: jsonHeaders(), body: JSON.stringify({user_id: verifyTargetId})});
       closeVerifyModal();
       fetchUsers(currentPage);
     });
@@ -500,7 +501,7 @@
       if(!verifyTargetId) return;
       const ok = await openConfirm({title:'Discard User', message:'This will permanently delete the unverified user. Continue?', okText:'Discard'});
       if(!ok) return;
-      await fetch('/api/v1/auth/discard-user', {method:'POST', headers: jsonHeaders(), body: JSON.stringify({user_id: verifyTargetId})});
+      await fetch(`${BASE}/api/v1/auth/discard-user`, {method:'POST', headers: jsonHeaders(), body: JSON.stringify({user_id: verifyTargetId})});
       closeVerifyModal();
       fetchUsers(1);
     });

@@ -12,10 +12,11 @@
 
 (() => {
     // ------------------ Config ------------------
+    const BASE = '/video';
     const CFG = {
-        API_SEARCH: "/api/v1/video/search",  // expects ?q=&page=&page_size=&sort= plus optional filter params
-        API_CATEGORIES: "/api/v1/video/categories",
-        API_TAGS: "/api/v1/video/tags",
+        API_SEARCH: BASE + "/api/v1/video/search",  // expects ?q=&page=&page_size=&sort= plus optional filter params
+        API_CATEGORIES: BASE + "/api/v1/video/categories",
+        API_TAGS: BASE + "/api/v1/video/tags",
         PAGE_SIZE: 12,
         TIMEOUT_MS: 8000,
         LS: {
@@ -433,7 +434,7 @@
         params.set('q', state.q||'');
         params.set('page', 1);
         params.set('page_size', 8);
-        return `/api/v1/video/search/playlists?${params.toString()}`;
+        return `${BASE}/api/v1/video/search/playlists?${params.toString()}`;
     }
 
     function renderPlaylistResults(result){
@@ -515,7 +516,7 @@
         const ids = (items||[]).map(v=> v.uuid || v.id || v.slug).filter(Boolean);
         if(!ids.length) return;
         const params = new URLSearchParams(); params.set('ids', ids.join(','));
-        const r = await fetch(`/api/v1/video/playlists/contains?${params.toString()}`, { headers:{ 'Accept':'application/json' }});
+        const r = await fetch(`${BASE}/api/v1/video/playlists/contains?${params.toString()}`, { headers:{ 'Accept':'application/json' }});
         if(!r.ok) return; const data = await r.json().catch(()=>({present:[]}));
         const present = new Set(data.present||[]);
         container.querySelectorAll('[data-video-id]').forEach(a=>{
@@ -583,7 +584,7 @@
 
         // thumbnail
         if (thumb) {
-            thumb.src = v.thumbnail || v.thumb || (id ? `/api/v1/video/thumbnails/${safeId}.jpg` : placeholderThumb(id));
+            thumb.src = v.thumbnail || v.thumb || (id ? `${BASE}/api/v1/video/thumbnails/${safeId}.jpg` : placeholderThumb(id));
             thumb.alt = titleText;
             thumb.loading = "lazy";
             thumb.decoding = "async";
@@ -674,7 +675,7 @@
 
         if (thumb) {
             const id = v.uuid ?? v.id ?? v.slug ?? "";
-            thumb.src = v.thumbnail || v.thumb || (id ? `/api/v1/video/thumbnails/${encodeURIComponent(id)}.jpg` : placeholderThumb(v.id));
+            thumb.src = v.thumbnail || v.thumb || (id ? `${BASE}/api/v1/video/thumbnails/${encodeURIComponent(id)}.jpg` : placeholderThumb(v.id));
             thumb.alt = v.title || "Video";
             thumb.loading = "lazy";
             thumb.decoding = "async";

@@ -1,5 +1,6 @@
 // Favourite toggle logic (extracted from inline script for CSP compliance)
 (function(){
+  const BASE = '/video';
   document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('favBtn');
     if(!btn) return;
@@ -20,8 +21,8 @@
       };
     };
     const API = {
-      status: `/api/v1/video/${encodeURIComponent(videoId)}/favorite`,
-      toggle: `/api/v1/video/${encodeURIComponent(videoId)}/favorite`,
+      status: `${BASE}/api/v1/video/${encodeURIComponent(videoId)}/favorite`,
+      toggle: `${BASE}/api/v1/video/${encodeURIComponent(videoId)}/favorite`,
     };
     let fav = false; let busy = false;
     function renderFav(){
@@ -43,7 +44,7 @@
       const res = await fetch(API.toggle, withAuth({method}));
       if(res.status === 401){
         alert('Please login to use favourites.');
-        window.location.href = '/login';
+        window.location.href = BASE + '/login';
         throw new Error('Unauthorized');
       }
       if(!res.ok) throw new Error(res.status);

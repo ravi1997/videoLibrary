@@ -115,7 +115,7 @@ function applyFilters(page = 1) {
     params.append("page", page);
     params.append("per_page", perPage);
 
-    fetch(`/api/v1/video/search?${params.toString()}`)
+    fetch(`/video/api/v1/video/search?${params.toString()}`)
         .then(res => res.json())
         .then(data => {
             renderResults(data);
@@ -149,9 +149,9 @@ function renderResults(data) {
         const card = document.createElement("div");
         card.className = "relative flex bg-gray-900 border border-gray-700 rounded-lg overflow-hidden shadow hover:ring-1 hover:ring-pink-400 transition";
         card.innerHTML = `
-                <a href="/${video.uuid}" class="flex w-full no-underline text-white">
+                <a href="/video/${video.uuid}" class="flex w-full no-underline text-white">
                     <div class="relative">
-                        <img src="/api/v1/video/thumbnails/${video.uuid}.jpg" alt="${video.title}" class="w-72 h-42 object-cover" />
+                        <img src="/video/api/v1/video/thumbnails/${video.uuid}.jpg" alt="${video.title}" class="w-72 h-42 object-cover" />
                         ${progressBar}
                     </div>
                     <div class="p-4 flex flex-col justify-between space-y-2 w-full">
@@ -183,7 +183,7 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("themeSelect").value = savedTheme;
     }
 
-    fetch("/api/v1/video/categories")
+    fetch("/video/api/v1/video/categories")
         .then(res => res.json())
         .then(categories => {
             const catSelect = document.getElementById("filter-category");

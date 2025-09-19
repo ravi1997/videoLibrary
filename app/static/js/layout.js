@@ -7,6 +7,7 @@
 
 (() => {
   // ------------------ Theme ------------------
+  const BASE = '/video';
   const THEME_KEY = "ui.theme"; // "light" | "dark"
   const htmlEl = document.documentElement;
   const bodyEl = document.body;
@@ -111,7 +112,7 @@
       const token = localStorage.getItem("token");
       if (token) {
         try {
-          const me = await fetch("/api/v1/auth/me", {
+          const me = await fetch(BASE + "/api/v1/auth/me", {
             headers: {
               "Accept": "application/json",
               "Authorization": `Bearer ${token}`,
@@ -135,7 +136,7 @@
     }
 
     if (!user) {
-      mount.innerHTML = `<a class="btn btn-primary" href="/login">Login</a>`;
+      mount.innerHTML = `<a class="btn btn-primary" href="${BASE}/login">Login</a>`;
       return;
     }
 
@@ -153,18 +154,18 @@
     // Grouped links for automatic divider insertion between sections
   const groups = [
       [ // Account
-        { href: '/settings', label: 'Settings' },
-        { href: '/change-password', label: 'Change Password' }
+        { href: BASE + '/settings', label: 'Settings' },
+        { href: BASE + '/change-password', label: 'Change Password' }
       ],
       [ // Activity
-        { href: '/history', label: 'History' },
-        { href: '/favourites', label: 'Favourites' },
-        { href: '/playlists', label: 'Playlists' }
+        { href: BASE + '/history', label: 'History' },
+        { href: BASE + '/favourites', label: 'Favourites' },
+        { href: BASE + '/playlists', label: 'Playlists' }
       ],
-      isUploader ? [ { href: '/upload', label: 'Upload Video' } ] : null,
+      isUploader ? [ { href: BASE + '/upload', label: 'Upload Video' } ] : null,
       [ // Legal
-        { href: '/privacy', label: 'Privacy' },
-        { href: '/terms', label: 'Terms' }
+        { href: BASE + '/privacy', label: 'Privacy' },
+        { href: BASE + '/terms', label: 'Terms' }
       ]
     ].filter(Boolean);
 
@@ -176,9 +177,9 @@
     let adminSection = '';
     if (isAdmin) {
       const adminLinks = [
-        { href: '/admin/dashboard', label: 'Dashboard' },
-        { href: '/admin/unverified', label: 'Verify Users' },
-        { href: '/admin/link-surgeons', label: 'Link Surgeons' }
+        { href: BASE + '/admin/dashboard', label: 'Dashboard' },
+        { href: BASE + '/admin/unverified', label: 'Verify Users' },
+        { href: BASE + '/admin/link-surgeons', label: 'Link Surgeons' }
       ];
       const adminLinksHtml = adminLinks.map(l => `<a class="block px-3 py-2 rounded hover:bg-[color:var(--brand-50)] no-underline" href="${escapeAttr(l.href)}">${escapeHtml(l.label)}</a>`).join('');
       adminSection = `
@@ -196,9 +197,9 @@
     let superSection = '';
     if (isSuper) {
       const superLinks = [
-        { href: '/admin/super/overview', label: 'Overview' },
-        { href: '/admin/super/users', label: 'Users' },
-        { href: '/admin/super/audit', label: 'Audit Logs' },
+        { href: BASE + '/admin/super/overview', label: 'Overview' },
+        { href: BASE + '/admin/super/users', label: 'Users' },
+        { href: BASE + '/admin/super/audit', label: 'Audit Logs' },
       ];
       const superLinksHtml = superLinks.map(l => `<a class="block px-3 py-2 rounded hover:bg-[color:var(--brand-50)] no-underline text-sm" href="${escapeAttr(l.href)}">${escapeHtml(l.label)}</a>`).join('');
       superSection = `
@@ -218,7 +219,7 @@
           <span class="sm:inline">${safeName}</span>
         </button>
         <div id="userMenu" class="hidden absolute right-0 mt-2 w-60 card group-hover:block" role="menu" aria-labelledby="userBtn">
-          <a href="/profile" class="block px-3 py-2 rounded hover:bg-[color:var(--brand-50)] no-underline" role="menuitem">
+          <a href="${BASE}/profile" class="block px-3 py-2 rounded hover:bg-[color:var(--brand-50)] no-underline" role="menuitem">
             <div class="text-sm font-semibold">${safeName}</div>
             <div class="text-xs muted truncate">${escapeHtml(user.email || "")}</div>
           </a>
@@ -326,7 +327,7 @@
     // Try to notify server; ignore failures
     const token = localStorage.getItem("token");
     try {
-      await fetch("/api/v1/auth/logout", {
+      await fetch(BASE + "/api/v1/auth/logout", {
         method: "POST",
         headers: token ? { "Authorization": `Bearer ${token}` } : {},
       });
@@ -335,7 +336,7 @@
     }
     clearAuthStorage();
     // Redirect to login (or home if you prefer)
-    try { window.location.assign("/login"); } catch { window.location.href = "/login"; }
+    try { window.location.assign(BASE + "/login"); } catch { window.location.href = BASE + "/login"; }
   }
 
   function clearAuthStorage() {
@@ -372,7 +373,7 @@
     const refresh = localStorage.getItem('refresh_token');
     if (!refresh) return false;
     try {
-      const resp = await fetch('/api/v1/auth/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ refresh_token: refresh }) });
+      const resp = await fetch(BASE + '/api/v1/auth/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ refresh_token: refresh }) });
       if (!resp.ok) return false;
       const data = await resp.json().catch(()=>({}));
       if (data.access_token) {
@@ -398,7 +399,7 @@
           const clone = resp.clone();
           const data = await clone.json().catch(()=>null);
           if (data && data.error === 'password_change_required') {
-            if (!path.startsWith('/change-password')) {
+            if (!path.startsWith(BASE + '/change-password')) {
               showToast('Password update required. Redirecting…','info',3000);
               setTimeout(()=>{ try { window.location.replace('/change-password'); } catch { window.location.href='/change-password'; } }, 500);
             }
@@ -408,7 +409,7 @@
       } catch { /* ignore parse errors */ }
     }
 
-    if (path.startsWith('/login')) return; // already on login
+    if (path.startsWith(BASE + '/login')) return; // already on login
     // Attempt refresh once per navigation
     if (!sessionStorage.getItem('__refresh_attempted')) {
       sessionStorage.setItem('__refresh_attempted','1');
@@ -422,7 +423,7 @@
     showToast('Session expired. Redirecting to login…','warn',3500);
     clearAuthStorage();
     const ret = encodeURIComponent(path + window.location.search);
-    setTimeout(()=>{ try { window.location.replace(`/login?next=${ret}`); } catch { window.location.href = `/login?next=${ret}`; } }, 1200);
+    setTimeout(()=>{ try { window.location.replace(`/video/login?next=${ret}`); } catch { window.location.href = `/video/login?next=${ret}`; } }, 1200);
   }
 
   // Patch fetch once
@@ -466,7 +467,7 @@
     if (!input) return;
     const q = input.value.trim();
     if (!q) return;
-    window.location.href = `/search?q=${encodeURIComponent(q)}`;
+    window.location.href = `${BASE}/search?q=${encodeURIComponent(q)}`;
   }
   // Bind search button (CSP-safe)
   function bindSearchButton() {
@@ -517,7 +518,7 @@
       .forEach(el => {
         if (authed) return;
         if (el.tagName === 'A' && el.getAttribute('href')) {
-          el.setAttribute('href', `/login?next=${current}`);
+          el.setAttribute('href', `${BASE}/login?next=${current}`);
           el.setAttribute('title', 'Login required');
         } else {
           el.setAttribute('aria-disabled','true');
@@ -532,7 +533,7 @@
         const allowed = req.some(r => roles.has(r));
         if (allowed) return;
         if (el.tagName === 'A' && el.getAttribute('href')) {
-          el.setAttribute('href', `/login?next=${current}`);
+          el.setAttribute('href', `${BASE}/login?next=${current}`);
           el.setAttribute('title', 'Insufficient role; login with permitted account');
         } else {
           el.classList.add('hidden');

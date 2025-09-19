@@ -30,12 +30,13 @@
 
     // ------------------ Config ------------------
     const VID = dom.videoId;
+    const BASE = '/video';
     const CFG = {
-        META: `/api/v1/video/${encodeURIComponent(VID)}`,
-        NEXT: `/api/v1/video/${encodeURIComponent(VID)}/watch-next?limit=12`,
-        RECS: `/api/v1/video/${encodeURIComponent(VID)}/recommendations?limit=20`,
-        PROGRESS: `/api/v1/video/progress`,
-        SETTINGS: `/api/v1/user/settings`,
+        META: `${BASE}/api/v1/video/${encodeURIComponent(VID)}`,
+        NEXT: `${BASE}/api/v1/video/${encodeURIComponent(VID)}/watch-next?limit=12`,
+        RECS: `${BASE}/api/v1/video/${encodeURIComponent(VID)}/recommendations?limit=20`,
+        PROGRESS: `${BASE}/api/v1/video/progress`,
+        SETTINGS: `${BASE}/api/v1/user/settings`,
         SAVE_KEY: (k) => `vid.${VID}.${k}`,
         TIMEOUT_MS: 12000,
 
@@ -383,7 +384,7 @@
         if (m.tags?.length) {
             const tagChips = m.tags.map(t => {
                 const name = String(t.name || t || '').trim();
-                const href = name ? `/tag/${encodeURIComponent(name)}` : '#';
+                const href = name ? `${BASE}/tag/${encodeURIComponent(name)}` : '#';
                 return `<a class="chip inline-block no-underline hover:shadow" href="${href}">${escapeHtml(name)}</a>`;
             }).join(" ");
             extra.push(`<div><strong>Tags: </strong> ${tagChips}</div>`);
@@ -395,7 +396,7 @@
                     const sid = t.id || t.surgeon_id || t.uuid || null;
                     const label = `${escapeHtml(t.name || t)}${t.type ? ' : ' + escapeHtml(t.type) : ''}`;
                     if (sid) {
-                        const href = `/linked-video/${encodeURIComponent(sid)}`; // alias route
+                        const href = `${BASE}/linked-video/${encodeURIComponent(sid)}`; // alias route
                         return `<a class="chip inline-block hover:shadow cursor-pointer no-underline" title="View linked videos" href="${href}">${label}</a>`;
                     }
                     return `<span class="chip inline-block">${label}</span>`;
@@ -434,12 +435,12 @@
     }
     function nextCard(v) {
         const a = document.createElement("a");
-        a.href = v.url || `/${encodeURIComponent(v.uuid || v.slug || "")}`;
+        a.href = v.url || `${BASE}/${encodeURIComponent(v.uuid || v.slug || "")}`;
         a.className = "min-w-[260px] w-[260px] shrink-0 card p-2 hover:shadow-xl transition-shadow no-underline";
         a.style.scrollSnapAlign = "start";
         a.innerHTML = `
       <div class="rounded-lg aspect-video bg-[color:var(--border)] overflow-hidden">
-        <img class="w-full h-full object-cover block" src='/api/v1/video/thumbnails/${encodeURIComponent(v.uuid || v.slug || "")}.jpg' alt="${escapeAttr(v.title || "Video")}" />
+        <img class="w-full h-full object-cover block" src='${BASE}/api/v1/video/thumbnails/${encodeURIComponent(v.uuid || v.slug || "")}.jpg' alt="${escapeAttr(v.title || "Video")}" />
       </div>
       <div class="mt-2">
         <div class="font-semibold text-[color:var(--text)] line-clamp-2">${escapeHtml(v.title || "Untitled")}</div>
@@ -450,11 +451,11 @@
     }
     function recRow(v) {
         const a = document.createElement("a");
-        a.href = v.url || `/${encodeURIComponent(v.uuid || v.slug || "")}`;
+        a.href = v.url || `${BASE}/${encodeURIComponent(v.uuid || v.slug || "")}`;
         a.className = "card p-2 grid grid-cols-[128px,1fr] gap-2 items-center hover:shadow-xl transition-shadow no-underline";
         a.innerHTML = `
       <div class="rounded-lg w-full bg-[color:var(--border)] overflow-hidden">
-        <img class="w-full h-full object-cover block" src='/api/v1/video/thumbnails/${encodeURIComponent(v.uuid || v.slug || "")}.jpg' alt="${escapeAttr(v.title || "Video")}" />
+        <img class="w-full h-full object-cover block" src='${BASE}/api/v1/video/thumbnails/${encodeURIComponent(v.uuid || v.slug || "")}.jpg' alt="${escapeAttr(v.title || "Video")}" />
       </div>
       <div class="min-w-0">
         <div class="font-semibold text-[color:var(--text)] line-clamp-2">${escapeHtml(v.title || "Untitled")}</div>

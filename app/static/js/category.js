@@ -10,9 +10,10 @@
 
 (() => {
     // ------------------ Config ------------------
+    const BASE = '/video';
     const CFG = {
-        API_CATEGORIES: "/api/v1/video/categories",
-        API_VIDEOS: "/api/v1/video/", // supports ?category=&page=&page_size=&sort=
+        API_CATEGORIES: BASE + "/api/v1/video/categories",
+        API_VIDEOS: BASE + "/api/v1/video/", // supports ?category=&page=&page_size=&sort=
         PAGE_SIZE: 12,
         TIMEOUT_MS: 8000,
     };
@@ -279,7 +280,7 @@
         const ids = (items||[]).map(v=> v.uuid || v.id || v.slug).filter(Boolean);
         if(!ids.length) return;
         const params = new URLSearchParams(); params.set('ids', ids.join(','));
-        const r = await fetch(`/api/v1/video/playlists/contains?${params.toString()}`, { headers:{ 'Accept':'application/json' }});
+        const r = await fetch(`${BASE}/api/v1/video/playlists/contains?${params.toString()}`, { headers:{ 'Accept':'application/json' }});
         if(!r.ok) return; const data = await r.json().catch(()=>({present:[]}));
         const present = new Set(data.present||[]);
         container.querySelectorAll('[data-video-id]').forEach(a=>{
@@ -330,12 +331,12 @@
         // --------- data ---------
         const id = v.uuid ?? v.id ?? v.slug ?? '';
         const safeId = encodeURIComponent(id);
-        const href = v.url || (id ? `/${safeId}` : '#');
+        const href = v.url || (id ? `${BASE}/${safeId}` : '#');
         const titleText = (v.title || '').trim() || 'Untitled';
         const categoryTxt = (v.category_name || v.category?.name || '').trim();
         const descText = (v.description || categoryTxt || '').trim();
         const authorName = (v.author || v.channel || '').trim() || 'Unknown';
-        const thumbUrl = v.thumbnail || v.thumb || (id ? `/api/v1/video/thumbnails/${safeId}.jpg` : placeholderThumb(id));
+        const thumbUrl = v.thumbnail || v.thumb || (id ? `${BASE}/api/v1/video/thumbnails/${safeId}.jpg` : placeholderThumb(id));
         const avatarUrl = v.author_avatar || v.channel_avatar || placeholderAvatar(authorName);
         const durText = fmtDuration(v.duration);
         const metaText = compactMeta(v);
@@ -350,7 +351,7 @@
 
         // --------- thumbnail ---------
         if (thumb) {
-            thumb.src = `/api/v1/video/thumbnails/${id}.jpg`;
+            thumb.src = `${BASE}/api/v1/video/thumbnails/${id}.jpg`;
             thumb.alt = titleText;
             thumb.loading = "lazy";
             thumb.decoding = "async";

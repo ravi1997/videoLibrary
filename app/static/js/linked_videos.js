@@ -47,13 +47,14 @@
     grid.appendChild(frag);
   }
   function videoCard(v){
+    const BASE = '/video';
     const art=document.createElement('article');
     art.className='card p-0 overflow-hidden group hover:shadow-xl transition-shadow flex flex-col';
-    const href='/' + encodeURIComponent(v.uuid||'');
+    const href= BASE + '/' + encodeURIComponent(v.uuid||'');
     const viewTxt = formatCompact(v.views||0) + ' views';
     art.innerHTML=`<a class="block relative" href="${href}">
       <div class="w-full aspect-video relative overflow-hidden rounded-b-none">
-        <img class="w-full h-full object-cover block transition-transform duration-300 group-hover:scale-[1.03]" src="/api/v1/video/thumbnails/${encodeURIComponent(v.uuid||'')}.jpg" alt="${escapeHtml(v.title||'Video')}">
+        <img class="w-full h-full object-cover block transition-transform duration-300 group-hover:scale-[1.03]" src="${BASE}/api/v1/video/thumbnails/${encodeURIComponent(v.uuid||'')}.jpg" alt="${escapeHtml(v.title||'Video')}">
         <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent opacity-60 group-hover:opacity-70 transition-opacity"></div>
         <div class="absolute bottom-2 left-2 right-2 flex items-center justify-between text-[10px] text-white font-medium">
           <span class="px-1.5 py-0.5 rounded bg-black/50 backdrop-blur-sm">${viewTxt}</span>
@@ -86,7 +87,8 @@
   }
 
   async function load(){
-    const base = state.subject?.type==='surgeon' ? `/api/v1/admin/surgeons/${state.subject.id}/videos` : `/api/v1/admin/users/${state.subject.id}/videos`;
+    const BASEP = '/video';
+    const base = state.subject?.type==='surgeon' ? `${BASEP}/api/v1/admin/surgeons/${state.subject.id}/videos` : `${BASEP}/api/v1/admin/users/${state.subject.id}/videos`;
     const url = `${base}?q=${encodeURIComponent(state.q)}&page=${state.page}&page_size=${state.pageSize}&sort_dir=${state.sort_dir}`;
     state.loading = true; showLoading();
     try{ const data = await fetchJSON(url); renderList(data.items||[]); updateMeta(data); }catch(e){ console.error(e); } finally { state.loading=false; }

@@ -1,5 +1,6 @@
 // User Activity Page Logic
 (function(){
+  const BASE = '/video';
   const root = document.getElementById('user-activity-root');
   if(!root) return;
   const userId = root.getAttribute('data-user-id');
@@ -13,7 +14,7 @@
 
   async function load(){
     try {
-      const r = await fetch(`/api/v1/super/users/${userId}/activity`, {headers:{'Accept':'application/json'}});
+      const r = await fetch(`${BASE}/api/v1/super/users/${userId}/activity`, {headers:{'Accept':'application/json'}});
       if(!r.ok){ metaEl.textContent = 'Failed to load activity'; return; }
       const data = await r.json();
       const u = data.user || {};      

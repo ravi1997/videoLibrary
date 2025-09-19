@@ -1,4 +1,5 @@
 (function(){
+  const BASE = '/video';
   const modal = document.getElementById('plMultiModal');
   if(!modal) return;
   const listEl = document.getElementById('plMultiList');
@@ -17,7 +18,7 @@
   async function loadOwned(){
     listEl.innerHTML = `<div class='text-sm muted'>Loading…</div>`;
     try{
-      const r = await fetch('/api/v1/video/playlists?scope=personal&page=1&page_size=500', { headers: { 'Accept':'application/json', ...authHeader() }});
+      const r = await fetch(BASE + '/api/v1/video/playlists?scope=personal&page=1&page_size=500', { headers: { 'Accept':'application/json', ...authHeader() }});
       const data = await r.json().catch(()=>({items:[]}));
       const items = data.items || [];
       if(!items.length){ listEl.innerHTML = `<div class='text-sm muted'>No playlists yet. Create one in Playlists.</div>`; return; }
@@ -44,7 +45,7 @@
     let ok = 0, fail = 0;
     for(const pid of selected){
       try{
-        const r = await fetch(`/api/v1/video/playlists/${pid}/items`, { method:'POST', headers: jsonHeaders(), body: JSON.stringify({ video_id: currentVideo }) });
+        const r = await fetch(`${BASE}/api/v1/video/playlists/${pid}/items`, { method:'POST', headers: jsonHeaders(), body: JSON.stringify({ video_id: currentVideo }) });
         if(r.ok) ok++; else fail++;
       }catch{ fail++; }
     }
@@ -61,4 +62,3 @@
 
   window.playlistMulti = { show };
 })();
-

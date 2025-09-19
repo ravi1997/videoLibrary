@@ -4,6 +4,7 @@ import hashlib as _hashlib
 import subprocess
 from flask_jwt_extended import get_jwt_identity
 import os
+import shutil
 from datetime import datetime, timedelta, timezone
 from typing import List
 import uuid
@@ -12,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from flask import Blueprint, Response, current_app, jsonify, request, send_from_directory, abort
 from flask_jwt_extended import jwt_required
 from marshmallow import EXCLUDE
-from sqlalchemy import and_, case, desc, or_, func, literal, literal_column
+from sqlalchemy import and_, case, desc, or_, func, literal, literal_column, text as sa_text, cast, String
 import re
 
 from app.extensions import db
@@ -297,7 +298,7 @@ def get_latest_history():
         results.append({
             "uuid": v.uuid,
             "title": v.title,
-            "thumbnail": f"/api/v1/video/thumbnails/{v.uuid}.jpg",
+            "thumbnail": f"/video/api/v1/video/thumbnails/{v.uuid}.jpg",
             "position": round(h.position, 2),
             "duration": v.duration,
             "views": v.views,
@@ -385,7 +386,7 @@ def get_watch_history():
             "id": vid.uuid,  # shorthand key 'id' commonly used by UI
             "uuid": vid.uuid,
             "title": vid.title,
-            "thumbnail": f"/api/v1/video/thumbnails/{vid.uuid}.jpg",
+            "thumbnail": f"/video/api/v1/video/thumbnails/{vid.uuid}.jpg",
             "position": float(prog.position or 0),
             "duration": float(vid.duration or 0),
             "views": vid.views,
@@ -619,8 +620,13 @@ def _parse_uuid(s: str):
 
 def get_video_duration(path):
     try:
+        # Resolve ffprobe path once per call to avoid import-time failures
+        ffprobe_bin = os.environ.get('FFPROBE_BIN') or shutil.which('ffprobe')
+        if not ffprobe_bin:
+            raise RuntimeError("ffprobe not found. Install ffmpeg or set FFPROBE_BIN to its path.")
+
         result = subprocess.run([
-            'ffprobe', '-v', 'error', '-show_entries',
+            ffprobe_bin, '-v', 'error', '-show_entries',
             'format=duration', '-of',
             'default=noprint_wrappers=1:nokey=1', path
         ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -808,11 +814,14 @@ def _assemble_chunks(upload_id: str, total_chunks: int, final_path: str):
                     if not buf:
                         break
                     out.write(buf)
-    # cleanup
+    # cleanup partial pieces only; keep meta/lock and assembled file for caller
     try:
         for fname in os.listdir(part_dir):
-            os.remove(os.path.join(part_dir, fname))
-        os.rmdir(part_dir)
+            if fname.endswith('.part'):
+                try:
+                    os.remove(os.path.join(part_dir, fname))
+                except Exception:
+                    pass
     except Exception:
         pass
 
@@ -1065,8 +1074,23 @@ def complete_chunk_upload():
             audit_log('chunk_upload_complete', actor_id=user_uuid, detail=f'upload_id={upload_id};video={video.uuid}')
         except Exception:
             pass
+        # best-effort: remove session dir + metadata now that file is promoted
+        try:
+            for fname in os.listdir(part_dir):
+                try:
+                    os.remove(os.path.join(part_dir, fname))
+                except Exception:
+                    pass
+            os.rmdir(part_dir)
+        except Exception:
+            pass
         return jsonify({"uuid": video.uuid, "status": video.status.value}), 201
     except Exception as e:
+        # Preserve HTTPException statuses (e.g., abort(400, ...))
+        from werkzeug.exceptions import HTTPException
+        if isinstance(e, HTTPException):
+            current_app.logger.warning(f"Chunked upload completion HTTP {e.code}: {e.description}")
+            raise e
         current_app.logger.error(f"Chunked upload completion failed: {e}")
         return jsonify({"error": str(e)}), 500
 
@@ -1606,6 +1630,26 @@ def search_videos():
         except Exception:
             use_pg = False
     sim_available = False
+    def _pg_proc_exists(name: str) -> bool:
+        if 'postgresql' not in driver:
+            return False
+        try:
+            res = db.session.execute(sa_text("SELECT 1 FROM pg_proc WHERE proname=:n LIMIT 1"), {"n": name})
+            return bool(res.scalar())
+        except Exception:
+            return False
+    def _pg_similarity_available() -> bool:
+        return _pg_proc_exists('similarity')
+    def _pg_unaccent_available() -> bool:
+        return _pg_proc_exists('unaccent')
+    def _pg_similarity_available() -> bool:
+        if 'postgresql' not in driver:
+            return False
+        try:
+            res = db.session.execute(sa_text("SELECT 1 FROM pg_proc WHERE proname='similarity' LIMIT 1"))
+            return bool(res.scalar())
+        except Exception:
+            return False
     if q:
         if use_pg:
             # Use stored weighted search_vec (already includes related fields via triggers)
@@ -1613,7 +1657,11 @@ def search_videos():
 
             # Natural query parsing + unaccent; OR synonyms and phrases
             q_parts = [q] + [t for t in terms if t and t.lower() != (q or '').lower()] + [f'"{p}"' for p in phrases]
-            tsquery = func.websearch_to_tsquery('simple', func.unaccent(' OR '.join(q_parts)))
+            q_joined = ' OR '.join(q_parts)
+            if _pg_unaccent_available():
+                tsquery = func.websearch_to_tsquery('simple', func.unaccent(literal(q_joined)))
+            else:
+                tsquery = func.websearch_to_tsquery('simple', literal(q_joined))
             rank = func.ts_rank_cd(base_vec, tsquery)
             query = query.filter(base_vec.op('@@')(tsquery))
             # Attach rank for ordering later
@@ -1671,18 +1719,16 @@ def search_videos():
                 score_expr = score_expr + case((func.lower(Tag.name).in_([t.lower() for t in tags]), 1), else_=0)
             query = query.add_columns(score_expr.label('rank'))
 
-            # Optional fuzzy ordering for Postgres (pg_trgm) — best-effort
-            try:
-                if q and len(q) >= 3:
-                    sim = func.greatest(
-                        func.similarity(func.coalesce(Video.title, ''), q),
-                        func.similarity(func.coalesce(Video.description, ''), q),
-                        func.similarity(func.coalesce(Video.transcript, ''), q)
-                    )
-                    query = query.add_columns(sim.label('sim'))
-                    sim_available = True
-            except Exception:
-                sim_available = False
+            # Optional fuzzy ordering for Postgres (pg_trgm) — only when available
+            if q and len(q) >= 3 and _pg_similarity_available():
+                qlit = cast(literal(q), String)
+                sim = func.greatest(
+                    func.similarity(func.coalesce(Video.title, ''), qlit),
+                    func.similarity(func.coalesce(Video.description, ''), qlit),
+                    func.similarity(func.coalesce(Video.transcript, ''), qlit)
+                )
+                query = query.add_columns(sim.label('sim'))
+                sim_available = True
 
     # Filters
     if category_filter:
@@ -1749,8 +1795,8 @@ def search_videos():
             'views': int(v.views or 0),
             'category_name': (v.category.name if getattr(v, 'category', None) else ''),
             'date': (v.created_at.isoformat() if getattr(v, 'created_at', None) else None),
-            'thumbnail': f"/api/v1/video/thumbnails/{v.uuid}.jpg",
-            'url': f"/{v.uuid}",
+            'thumbnail': f"/video/api/v1/video/thumbnails/{v.uuid}.jpg",
+            'url': f"/video/{v.uuid}",
             'position': round(pos or 0, 2) if pos is not None else 0,
         }
 
@@ -1975,14 +2021,26 @@ def add_playlist_item(pid: int):
         max_pos = db.session.query(db.func.max(PlaylistItem.position)).filter(PlaylistItem.playlist_id == pl.id).scalar() or 0
     except Exception:
         max_pos = 0
+    # Idempotent add: if already present, return existing item OK
+    existing = PlaylistItem.query.filter_by(playlist_id=pl.id, video_id=video_id).first()
+    if existing:
+        return jsonify({'item': existing.to_dict(with_video=True), 'already_present': True}), 200
+
     it = PlaylistItem(playlist_id=pl.id, video_id=video_id, position=int(max_pos) + 1)
     db.session.add(it)
     try:
         db.session.commit()
+        return jsonify({'item': it.to_dict(with_video=True)}), 201
     except Exception:
         db.session.rollback()
+        # If unique constraint hit, fetch and return existing item
+        try:
+            existing = PlaylistItem.query.filter_by(playlist_id=pl.id, video_id=video_id).first()
+            if existing:
+                return jsonify({'item': existing.to_dict(with_video=True), 'already_present': True}), 200
+        except Exception:
+            pass
         return jsonify({'error': 'persist_failed_or_duplicate'}), 400
-    return jsonify({'item': it.to_dict(with_video=True)}), 201
 
 
 @video_bp.route('/playlists/<int:pid>/items/<video_id>', methods=['DELETE'])
@@ -2245,7 +2303,7 @@ def playlist_recommended(pid: int):
             'title': rv.title,
             'duration': float(rv.duration or 0.0),
             'views': int(rv.views or 0),
-            'thumbnail': f"/api/v1/video/thumbnails/{rv.uuid}.jpg",
-            'url': f"/{rv.uuid}",
+            'thumbnail': f"/video/api/v1/video/thumbnails/{rv.uuid}.jpg",
+            'url': f"/video/{rv.uuid}",
         })
     return jsonify({'items': out})

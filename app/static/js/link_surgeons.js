@@ -1,4 +1,5 @@
 (() => {
+  const BASE = '/video';
   const token = () => localStorage.getItem('token') || '';
   const headers = () => ({ 'Accept': 'application/json', 'Authorization': `Bearer ${token()}` });
   const sQ = id => document.getElementById(id);
@@ -219,7 +220,7 @@
 
   async function loadSurgeonDetail(id){
     try{
-      const data = await fetchJSON(`/api/v1/admin/surgeons/${id}/detail`);
+      const data = await fetchJSON(`${BASE}/api/v1/admin/surgeons/${id}/detail`);
       if(data.user){
         const box = sQ('selSurgeonUser');
         if(box){
@@ -232,7 +233,7 @@
   }
   async function loadUserSurgeons(uid){
     try{
-      const data = await fetchJSON(`/api/v1/admin/users/${uid}/surgeons`);
+      const data = await fetchJSON(`${BASE}/api/v1/admin/users/${uid}/surgeons`);
       const box = sQ('selUserSurgeons');
       if(!box) return;
       const list = sQ('userSurgeonsList');
@@ -251,7 +252,7 @@
           e.stopPropagation();
           const sid = btn.getAttribute('data-id');
           try{
-            const r = await fetch(`/api/v1/admin/surgeons/${sid}/unlink`, { method:'POST', headers: headers() });
+            const r = await fetch(`${BASE}/api/v1/admin/surgeons/${sid}/unlink`, { method:'POST', headers: headers() });
             if(!r.ok) throw new Error();
             toast('Unlinked');
             if(selSurgeon && selSurgeon.id == sid){ selSurgeon.user_id = null; }
@@ -266,19 +267,19 @@
   async function searchSurgeons(){
   state.surgeons.q = (sQ('surgeonSearch').value||'').trim();
     const {q, filter, page, pageSize, sort, dir} = state.surgeons;
-    const url = `/api/v1/admin/surgeons?q=${encodeURIComponent(q)}&linked=${filter}&page=${page}&page_size=${pageSize}&sort_by=${sort}&sort_dir=${dir}`;
+    const url = `${BASE}/api/v1/admin/surgeons?q=${encodeURIComponent(q)}&linked=${filter}&page=${page}&page_size=${pageSize}&sort_by=${sort}&sort_dir=${dir}`;
     try{ const data = await fetchJSON(url); renderList(surgeonList, data.items || [], 'surgeon'); updateSurgeonMeta(data);}catch(e){ console.error(e); }
   }
   async function searchUsers(){
   state.users.q = (sQ('userSearch').value||'').trim();
     const {q, filter, page, pageSize, sort, dir} = state.users;
-    const url = `/api/v1/admin/users?q=${encodeURIComponent(q)}&has_surgeon=${filter}&page=${page}&page_size=${pageSize}&sort_by=${sort}&sort_dir=${dir}`;
+    const url = `${BASE}/api/v1/admin/users?q=${encodeURIComponent(q)}&has_surgeon=${filter}&page=${page}&page_size=${pageSize}&sort_by=${sort}&sort_dir=${dir}`;
     try{ const data = await fetchJSON(url); renderList(userList, data.items || [], 'user'); updateUserMeta(data);}catch(e){ console.error(e); }
   }
   async function link(){
     if(!(selSurgeon && selUser)) return;
     try{
-      const r = await fetch(`/api/v1/admin/surgeons/${selSurgeon.id}/link`, { method:'POST', headers:{...headers(),'Content-Type':'application/json'}, body: JSON.stringify({ user_id: selUser.id }) });
+      const r = await fetch(`${BASE}/api/v1/admin/surgeons/${selSurgeon.id}/link`, { method:'POST', headers:{...headers(),'Content-Type':'application/json'}, body: JSON.stringify({ user_id: selUser.id }) });
       if(!r.ok) throw new Error(r.status);
       selSurgeon.user_id = selUser.id; updatePanel(); searchSurgeons();
   await searchSurgeons();
@@ -290,7 +291,7 @@
   async function unlink(){
     if(!selSurgeon) return;
     try{
-      const r = await fetch(`/api/v1/admin/surgeons/${selSurgeon.id}/unlink`, { method:'POST', headers: headers() });
+      const r = await fetch(`${BASE}/api/v1/admin/surgeons/${selSurgeon.id}/unlink`, { method:'POST', headers: headers() });
       if(!r.ok) throw new Error(r.status);
   selSurgeon.user_id = null; updatePanel();
   await searchSurgeons();
@@ -303,7 +304,7 @@
     if(!bulk.surgeonIds.size || !selUser){ toast('Select surgeons and a user','warn'); return; }
     try {
       const body = { surgeon_ids: Array.from(bulk.surgeonIds), user_id: selUser.id };
-      const r = await fetch('/api/v1/admin/surgeons/bulk/link', { method:'POST', headers:{...headers(),'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      const r = await fetch(BASE + '/api/v1/admin/surgeons/bulk/link', { method:'POST', headers:{...headers(),'Content-Type':'application/json'}, body: JSON.stringify(body) });
       if(!r.ok) throw new Error();
   await searchSurgeons();
   await searchUsers();
@@ -315,7 +316,7 @@
     if(!bulk.surgeonIds.size){ toast('Select surgeons','warn'); return; }
     try {
       const body = { surgeon_ids: Array.from(bulk.surgeonIds) };
-      const r = await fetch('/api/v1/admin/surgeons/bulk/unlink', { method:'POST', headers:{...headers(),'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      const r = await fetch(BASE + '/api/v1/admin/surgeons/bulk/unlink', { method:'POST', headers:{...headers(),'Content-Type':'application/json'}, body: JSON.stringify(body) });
       if(!r.ok) throw new Error();
   await searchSurgeons();
   await searchUsers();
@@ -353,7 +354,7 @@
     const description = (sQ('newDesc').value||'').trim();
     if(!name || !type){ toast('Name & type required','warn'); return; }
     try{
-      const r = await fetch('/api/v1/admin/surgeons', { method:'POST', headers:{...headers(),'Content-Type':'application/json'}, body: JSON.stringify({name, type, description}) });
+      const r = await fetch(BASE + '/api/v1/admin/surgeons', { method:'POST', headers:{...headers(),'Content-Type':'application/json'}, body: JSON.stringify({name, type, description}) });
       if(!r.ok) throw new Error(r.status);
       sQ('newName').value=''; sQ('newType').value=''; sQ('newDesc').value='';
       toast('Surgeon created');

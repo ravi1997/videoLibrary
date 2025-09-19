@@ -10,13 +10,14 @@
 
 (() => {
     // ------------------ Config ------------------
+    const BASE = '/video';
     const CFG = {
-        API_CATEGORIES: "/api/v1/video/categories",
-        API_HISTORY: "/api/v1/video/history/latest?limit=8",
-        API_TRENDING: "/api/v1/video/trending?limit=12",
-        API_TAGS_TOP: "/api/v1/video/tags/top?limit=5",
-        API_RECENT: "/api/v1/video/?limit=12&sort=recent",
-        API_VIDEOS: "/api/v1/video/", // supports ?page=&page_size=&sort=&category=&tags=
+        API_CATEGORIES: BASE + "/api/v1/video/categories",
+        API_HISTORY: BASE + "/api/v1/video/history/latest?limit=8",
+        API_TRENDING: BASE + "/api/v1/video/trending?limit=12",
+        API_TAGS_TOP: BASE + "/api/v1/video/tags/top?limit=5",
+        API_RECENT: BASE + "/api/v1/video/?limit=12&sort=recent",
+        API_VIDEOS: BASE + "/api/v1/video/", // supports ?page=&page_size=&sort=&category=&tags=
         PAGE_SIZE: 12,
         TIMEOUT_MS: 8000,
     };
@@ -287,7 +288,7 @@
         `;
                 li.querySelector('button').addEventListener('click', () => {
                     const slug = encodeURIComponent(name);
-                    window.location.href = `/category/${slug}`;
+                    window.location.href = `${BASE}/category/${slug}`;
                 });
                 frag.appendChild(li);
             });
@@ -484,7 +485,7 @@
         const ids = (items||[]).map(v=> v.uuid || v.id || v.slug).filter(Boolean);
         if(!ids.length) return;
         const params = new URLSearchParams(); params.set('ids', ids.join(','));
-        const r = await fetch(`/api/v1/video/playlists/contains?${params.toString()}`, { headers:{ 'Accept':'application/json' }});
+        const r = await fetch(`${BASE}/api/v1/video/playlists/contains?${params.toString()}`, { headers:{ 'Accept':'application/json' }});
         if(!r.ok) return; const data = await r.json().catch(()=>({present:[]}));
         const present = new Set(data.present||[]);
         container.querySelectorAll('[data-video-id]').forEach(a=>{
@@ -535,12 +536,12 @@
         // --------- data ---------
         const id = v.uuid ?? v.id ?? v.slug ?? '';
         const safeId = encodeURIComponent(id);
-        const href = v.url || (id ? `/${safeId}` : '#');
+        const href = v.url || (id ? `${BASE}/${safeId}` : '#');
         const titleText = (v.title || '').trim() || 'Untitled';
         const categoryTxt = (v.category_name || v.category?.name || '').trim();
         const descText = (v.description || categoryTxt || '').trim();
         const authorName = (v.author || v.channel || '').trim() || 'Unknown';
-        const thumbUrl = v.thumbnail || v.thumb || (id ? `/api/v1/video/thumbnails/${safeId}.jpg` : placeholderThumb(id));
+        const thumbUrl = v.thumbnail || v.thumb || (id ? `${BASE}/api/v1/video/thumbnails/${safeId}.jpg` : placeholderThumb(id));
         const avatarUrl = v.author_avatar || v.channel_avatar || placeholderAvatar(authorName);
         const durText = fmtDuration(v.duration);
         const metaText = compactMeta(v);
@@ -555,7 +556,7 @@
 
         // --------- thumbnail ---------
         if (thumb) {
-            thumb.src = `/api/v1/video/thumbnails/${id}.jpg`;
+            thumb.src = `${BASE}/api/v1/video/thumbnails/${id}.jpg`;
             thumb.alt = titleText;
             thumb.loading = "lazy";
             thumb.decoding = "async";
@@ -638,7 +639,7 @@
             el.textContent = v.title || "Video";
         }
 
-        el.href = v.url || `/watch/${encodeURIComponent(v.id || v.slug || '')}`;
+        el.href = v.url || `${BASE}/${encodeURIComponent(v.id || v.slug || '')}`;
 
         const thumb = el.querySelector('img');
         const title = el.querySelector('h3');
@@ -681,13 +682,13 @@
     async function refreshFeaturedPlaylists(){
         const mount = document.getElementById('featuredPlaylists'); if(!mount) return;
         try{
-            const res = await fetch('/api/v1/video/playlists?scope=public&page=1&page_size=8', { headers: { 'Accept':'application/json' }});
+            const res = await fetch(`${BASE}/api/v1/video/playlists?scope=public&page=1&page_size=8`, { headers: { 'Accept':'application/json' }});
             if(!res.ok) throw new Error('HTTP '+res.status);
             const data = await res.json();
             const items = data.items||[];
             const frag = document.createDocumentFragment();
             items.forEach(p=>{
-                const a = document.createElement('a'); a.href = `/playlist/${p.id}/play`; a.className='card p-3 no-underline hover:shadow-xl transition-shadow';
+                const a = document.createElement('a'); a.href = `${BASE}/playlist/${p.id}/play`; a.className='card p-3 no-underline hover:shadow-xl transition-shadow';
                 a.innerHTML = `<div class="rounded-lg h-24 bg-[color:var(--border)] mb-2 flex items-center justify-center text-2xl">🎵</div>
                 <div class="font-semibold line-clamp-2">${escapeHtml(p.title||'Untitled')}</div>
                 <div class="text-xs muted">${p.items||0} items</div>`;

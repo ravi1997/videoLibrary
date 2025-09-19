@@ -1,4 +1,5 @@
 (function(){
+  const BASE = '/video';
   const root = document.querySelector('[data-pid]');
   if(!root) return;
   const pid = root.getAttribute('data-pid');
@@ -35,7 +36,7 @@
   function jsonHeaders(){ return { 'Content-Type':'application/json', 'Accept':'application/json', ...authHeader(), ...csrfHeader() }; }
 
   async function loadMeta(){
-    const r = await fetch(`/api/v1/video/playlists/${pid}`, { headers:{ 'Accept':'application/json', ...authHeader() } });
+    const r = await fetch(`${BASE}/api/v1/video/playlists/${pid}`, { headers:{ 'Accept':'application/json', ...authHeader() } });
     if(!r.ok){ titleHdr.textContent = `Playlist (${r.status})`; return; }
     const data = await r.json();
     pl = data.playlist; if(!pl) return;
@@ -58,7 +59,7 @@
   async function saveMetaFn(){
     metaMsg.textContent='';
     const body = { title: titleInput.value.trim(), description: descInput.value.trim(), is_public: !!publicToggle.checked };
-    const r = await fetch(`/api/v1/video/playlists/${pid}`, { method:'PUT', headers: jsonHeaders(), body: JSON.stringify(body) });
+    const r = await fetch(`${BASE}/api/v1/video/playlists/${pid}`, { method:'PUT', headers: jsonHeaders(), body: JSON.stringify(body) });
     const data = await r.json().catch(()=>({}));
     if(!r.ok){ metaMsg.textContent = data.error || `Error (${r.status})`; return; }
     metaMsg.textContent = 'Saved';
@@ -67,9 +68,9 @@
 
   async function deleteFn(){
     if(!confirm('Delete this playlist?')) return;
-    const r = await fetch(`/api/v1/video/playlists/${pid}`, { method:'DELETE', headers: { ...authHeader(), ...csrfHeader() }});
+    const r = await fetch(`${BASE}/api/v1/video/playlists/${pid}`, { method:'DELETE', headers: { ...authHeader(), ...csrfHeader() }});
     if(!r.ok){ metaMsg.textContent = `Delete failed (${r.status})`; return; }
-    window.location.assign('/playlists');
+    window.location.assign(BASE + '/playlists');
   }
 
   function renderItems(items){
@@ -111,7 +112,7 @@
   }
 
   async function loadItems(){
-    const r = await fetch(`/api/v1/video/playlists/${pid}/items?page=${state.page}&page_size=${state.pageSize}`, { headers:{ 'Accept':'application/json', ...authHeader() } });
+    const r = await fetch(`${BASE}/api/v1/video/playlists/${pid}/items?page=${state.page}&page_size=${state.pageSize}`, { headers:{ 'Accept':'application/json', ...authHeader() } });
     if(!r.ok){ itemsList.innerHTML = `<div class='text-red-600 text-sm'>Failed to load items (${r.status})</div>`; return; }
     const data = await r.json();
     state.total = data.total||0; state.pages = data.pages||1;
@@ -120,7 +121,7 @@
 
   async function saveOrder(){
     orderMsg.textContent='';
-    const r = await fetch(`/api/v1/video/playlists/${pid}/reorder`, { method:'POST', headers: jsonHeaders(), body: JSON.stringify({ order: state.order }) });
+    const r = await fetch(`${BASE}/api/v1/video/playlists/${pid}/reorder`, { method:'POST', headers: jsonHeaders(), body: JSON.stringify({ order: state.order }) });
     const data = await r.json().catch(()=>({}));
     if(!r.ok){ orderMsg.textContent = data.error || `Error (${r.status})`; return; }
     orderMsg.textContent = 'Order saved';
@@ -129,7 +130,7 @@
 
   async function removeItem(videoId){
     if(!confirm('Remove item?')) return;
-    const r = await fetch(`/api/v1/video/playlists/${pid}/items/${encodeURIComponent(videoId)}`, { method:'DELETE', headers: { ...authHeader(), ...csrfHeader() }});
+    const r = await fetch(`${BASE}/api/v1/video/playlists/${pid}/items/${encodeURIComponent(videoId)}`, { method:'DELETE', headers: { ...authHeader(), ...csrfHeader() }});
     if(!r.ok){ orderMsg.textContent = `Remove failed (${r.status})`; return; }
     loadItems();
   }
@@ -137,7 +138,7 @@
   async function addItem(){
     addMsg.textContent='';
     const vid = addVideoId.value.trim(); if(!vid){ addMsg.textContent='Enter video UUID'; return; }
-    const r = await fetch(`/api/v1/video/playlists/${pid}/items`, { method:'POST', headers: jsonHeaders(), body: JSON.stringify({ video_id: vid }) });
+    const r = await fetch(`${BASE}/api/v1/video/playlists/${pid}/items`, { method:'POST', headers: jsonHeaders(), body: JSON.stringify({ video_id: vid }) });
     const data = await r.json().catch(()=>({}));
     if(!r.ok){ addMsg.textContent = data.error || `Error (${r.status})`; return; }
     addVideoId.value=''; addMsg.textContent='Added';

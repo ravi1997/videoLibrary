@@ -1,5 +1,6 @@
 // Settings page logic extracted for CSP compliance
 (function () {
+  const BASE = '/video';
   const $ = (s, r = document) => r.querySelector(s);
   const getToken = () => localStorage.getItem("token") || "";
   const withAuth = (opts = {}) => ({
@@ -15,7 +16,7 @@
   async function logout() {
     const token = getToken();
     try {
-      await fetch("/api/v1/auth/logout", {
+      await fetch(BASE + "/api/v1/auth/logout", {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
@@ -25,15 +26,15 @@
       localStorage.removeItem("user");
     } catch {}
     try {
-      window.location.assign("/login");
+      window.location.assign(BASE + "/login");
     } catch {
-      window.location.href = "/login";
+      window.location.href = BASE + "/login";
     }
   }
 
   const API = {
-    get: "/api/v1/user/settings",
-    save: "/api/v1/user/settings",
+    get: BASE + "/api/v1/user/settings",
+    save: BASE + "/api/v1/user/settings",
   };
 
   const saveMsg = $("#saveMsg");
@@ -131,7 +132,7 @@
     saveMsg.textContent = "Loading your settings…";
     try {
       const res = await fetch(API.get, withAuth({ method: "GET" }));
-      if (res.status === 401) return (location.href = "/login");
+      if (res.status === 401) return (location.href = BASE + "/login");
       if (!res.ok) throw new Error("http " + res.status);
       const s = await res.json();
       state = { ...state, ...s };
@@ -152,7 +153,7 @@
     btnSave.disabled = true;
     try {
       const res = await fetch(API.save, withAuth({ method: "PUT", body: JSON.stringify(payload) }));
-      if (res.status === 401) return (location.href = "/login");
+      if (res.status === 401) return (location.href = BASE + "/login");
       if (!res.ok) throw new Error("http " + res.status);
       state = payload;
       localSet(state);

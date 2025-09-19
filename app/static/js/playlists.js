@@ -1,4 +1,5 @@
 (function(){
+  const BASE = '/video';
   const state = { scope:'personal', page:1, pageSize:20, total:0, pages:1 };
   const listEl = document.getElementById('plList');
   const prevBtn = document.getElementById('prevPage');
@@ -21,7 +22,7 @@
       left.innerHTML = `<div class="font-semibold">${escapeHtml(p.title||'Untitled')}</div>
         <div class="text-xs muted">${p.is_public? 'Public':'Personal'} • ${p.items||0} items • ${fmtDate(p.created_at)}</div>`;
       const right = document.createElement('div');
-      right.innerHTML = `<a class="btn btn-primary" href="/playlists/${p.id}">Open</a>`;
+      right.innerHTML = `<a class="btn btn-primary" href="/video/playlists/${p.id}">Open</a>`;
       card.appendChild(left); card.appendChild(right);
       listEl.appendChild(card);
     });
@@ -38,7 +39,7 @@
   function jsonHeaders(){ return { 'Content-Type':'application/json', ...authHeader(), ...csrfHeader() }; }
 
   async function load(){
-    const r = await fetch(`/api/v1/video/playlists?scope=${state.scope}&page=${state.page}&page_size=${state.pageSize}`, { headers:{ 'Accept':'application/json', ...authHeader() } });
+    const r = await fetch(`${BASE}/api/v1/video/playlists?scope=${state.scope}&page=${state.page}&page_size=${state.pageSize}`, { headers:{ 'Accept':'application/json', ...authHeader() } });
     if(!r.ok){ listEl.innerHTML = `<div class='text-red-600 text-sm'>Failed to load (${r.status})</div>`; return; }
     const data = await r.json();
     state.total = data.total||0; state.pages = data.pages||1;
@@ -58,7 +59,7 @@
       const msg = document.getElementById('plMsg');
       msg.textContent='';
       if(!title){ msg.textContent='Title required'; return; }
-      const r = await fetch('/api/v1/video/playlists', { method:'POST', headers: jsonHeaders(), body: JSON.stringify({ title, description, is_public }) });
+      const r = await fetch(BASE + '/api/v1/video/playlists', { method:'POST', headers: jsonHeaders(), body: JSON.stringify({ title, description, is_public }) });
       const data = await r.json().catch(()=>({}));
       if(!r.ok){ msg.textContent = data.error || `Error (${r.status})`; return; }
       form.classList.add('hidden'); document.getElementById('plTitle').value=''; document.getElementById('plDesc').value=''; document.getElementById('plPublic').checked=false;

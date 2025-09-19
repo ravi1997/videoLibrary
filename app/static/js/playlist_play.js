@@ -1,4 +1,5 @@
 (function(){
+  const BASE = '/video';
   const root = document.querySelector('[data-pid]'); if(!root) return;
   const pid = root.getAttribute('data-pid');
   const playerEl = document.getElementById('plPlayer');
@@ -14,14 +15,14 @@
   async function fetchJSON(url){ const r = await fetch(url, { headers:{ 'Accept':'application/json' }}); return r.json(); }
 
   async function loadNext(start=false){
-    const url = `/api/v1/video/playlists/${pid}/next${current?`?current=${encodeURIComponent(current)}`:''}`;
+    const url = `${BASE}/api/v1/video/playlists/${pid}/next${current?`?current=${encodeURIComponent(current)}`:''}`;
     const data = await fetchJSON(url);
     if(!data || !data.item){ return; }
     index = data.index || 0; current = data.item.video_id;
-    const src = `/api/v1/video/hls/${encodeURIComponent(current)}/master.m3u8`;
+    const src = `${BASE}/api/v1/video/hls/${encodeURIComponent(current)}/master.m3u8`;
     mountPlayer(src);
     renderSidebar();
-    try{ const recs = await fetchJSON(`/api/v1/video/playlists/${pid}/recommended?current=${encodeURIComponent(current)}`); renderRecs(recs?.items||[]);}catch{}
+    try{ const recs = await fetchJSON(`${BASE}/api/v1/video/playlists/${pid}/recommended?current=${encodeURIComponent(current)}`); renderRecs(recs?.items||[]);}catch{}
   }
 
   function mountPlayer(src){
@@ -34,14 +35,14 @@
     // lazy load all items when not fetched
     if(!items.length){
       // fetch first page large
-      fetchJSON(`/api/v1/video/playlists/${pid}/items?page=1&page_size=500`).then(d=>{ items = d.items||[]; renderSidebar(); });
+      fetchJSON(`${BASE}/api/v1/video/playlists/${pid}/items?page=1&page_size=500`).then(d=>{ items = d.items||[]; renderSidebar(); });
       return;
     }
     items.forEach((it,i)=>{
       const row = document.createElement('a');
-      row.href = `/${encodeURIComponent(it.video_id)}`;
+      row.href = `${BASE}/${encodeURIComponent(it.video_id)}`;
       row.className = `card p-2 flex items-center gap-2 ${i===index?'ring-1 ring-[color:var(--brand-600)]':''}`;
-      row.innerHTML = `<img src="/api/v1/video/thumbnails/${it.video_id}.jpg" alt="" class="w-16 h-10 object-cover rounded"><div class="text-sm">${escapeHtml(it?.video?.title||it.video_id)}</div>`;
+      row.innerHTML = `<img src="${BASE}/api/v1/video/thumbnails/${it.video_id}.jpg" alt="" class="w-16 h-10 object-cover rounded"><div class="text-sm">${escapeHtml(it?.video?.title||it.video_id)}</div>`;
       row.addEventListener('click', (e)=>{ e.preventDefault(); current = it.video_id; loadNext(); });
       listEl.appendChild(row);
     });
@@ -62,6 +63,5 @@
   nextBtn?.addEventListener('click', ()=>{ loadNext(); });
 
   // Seed items first so sidebar can show
-  fetchJSON(`/api/v1/video/playlists/${pid}/items?page=1&page_size=500`).then(d=>{ items = d.items||[]; renderSidebar(); loadNext(true); });
+  fetchJSON(`${BASE}/api/v1/video/playlists/${pid}/items?page=1&page_size=500`).then(d=>{ items = d.items||[]; renderSidebar(); loadNext(true); });
 })();
-

@@ -16,11 +16,11 @@
         <div class="card p-3 md:p-4">
             <div id="video-container" class="relative w-full bg-black rounded-xl overflow-hidden">
                 <video id="my-video" class="video-js vjs-big-play-centered w-full h-auto" controls preload="auto"
-                    poster="/api/v1/video/thumbnails/{{ video_id }}.jpg" data-setup='{
+                    poster="/video/api/v1/video/thumbnails/{{ video_id }}.jpg" data-setup='{
             "playbackRates": [0.5, 1, 1.25, 1.5, 2],
             "fluid": true
           }'>
-                    <source src="/api/v1/video/hls/{{ video_id }}/master.m3u8" type="application/vnd.apple.mpegurl" />
+                    <source src="/video/api/v1/video/hls/{{ video_id }}/master.m3u8" type="application/vnd.apple.mpegurl" />
                 </video>
 
                 <!-- Gesture / feedback overlay (left as hook for your JS) -->
@@ -73,7 +73,7 @@
         <section class="mt-4 card p-4">
             <div class="flex items-center justify-between mb-2">
                 <h2 class="text-lg font-bold text-[color:var(--text)]">Watch Next</h2>
-                <a href="/recommendations"
+                <a href="/video/recommendations"
                     class="text-sm no-underline hover:underline text-[color:var(--brand-600)]">More</a>
             </div>
 

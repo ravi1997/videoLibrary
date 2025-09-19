@@ -64,7 +64,7 @@
       const res = await fetch(url, {
         headers: { "Accept": "application/json", "Authorization": `Bearer ${localStorage.getItem("token") || ""}` }
       });
-      if (res.status === 401) { window.location.href = "/login"; return; }
+      if (res.status === 401) { window.location.href = "/video/login"; return; }
       const data = await res.json();
       state.items = data.items || [];
       state.total = (data.count ?? data.total ?? state.items.length) || 0;

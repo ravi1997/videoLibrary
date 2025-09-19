@@ -1,5 +1,6 @@
 // Profile page script extracted for CSP compliance
 (function () {
+  const BASE = '/video';
   const $ = (s, r = document) => r.querySelector(s);
   const getToken = () => localStorage.getItem("token") || "";
   const withAuth = (opts = {}) => ({
@@ -15,7 +16,7 @@
   async function logout() {
     const token = getToken();
     try {
-      await fetch("/api/v1/auth/logout", {
+      await fetch(BASE + "/api/v1/auth/logout", {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
@@ -25,15 +26,15 @@
       localStorage.removeItem("user");
     } catch {}
     try {
-      window.location.assign("/login");
+      window.location.assign(BASE + "/login");
     } catch {
-      window.location.href = "/login";
+      window.location.href = BASE + "/login";
     }
   }
 
   const API = {
-    me: "/api/v1/auth/me",
-    stats: "/api/v1/video/stats",
+    me: BASE + "/api/v1/auth/me",
+    stats: BASE + "/api/v1/video/stats",
   };
 
   const profName = $("#profName");
@@ -59,7 +60,7 @@
   async function loadProfile() {
     try {
       const res = await fetch(API.me, withAuth({ method: "GET" }));
-      if (res.status === 401) return (location.href = "/login");
+      if (res.status === 401) return (location.href = BASE + "/login");
       const data = await res.json();
       const u = data.logged_in_as || data.user || data;
       profName.textContent = u.name || u.username || "Your Profile";

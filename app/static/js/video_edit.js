@@ -1,5 +1,6 @@
 // Video metadata edit page logic
 (function(){
+  const BASE = '/video';
   const vid = (document.getElementById('video-id')?.textContent || '').trim();
   if(!vid) return;
 
@@ -29,9 +30,9 @@
   async function load(){
     try{
       const [res, catsRes, tagsRes] = await Promise.all([
-        fetch(`/api/v1/video/${encodeURIComponent(vid)}`, { headers: { 'Accept': 'application/json', ...authHeaders() } }),
-        fetch('/api/v1/video/categories', { headers: { 'Accept':'application/json', ...authHeaders() } }),
-        fetch('/api/v1/video/tags', { headers: { 'Accept':'application/json', ...authHeaders() } }),
+        fetch(`${BASE}/api/v1/video/${encodeURIComponent(vid)}`, { headers: { 'Accept': 'application/json', ...authHeaders() } }),
+        fetch(BASE + '/api/v1/video/categories', { headers: { 'Accept':'application/json', ...authHeaders() } }),
+        fetch(BASE + '/api/v1/video/tags', { headers: { 'Accept':'application/json', ...authHeaders() } }),
       ]);
       if(!res.ok){ setStatus('Failed to load video', 'error'); return; }
       const data = await res.json();
@@ -78,7 +79,7 @@
         tags,
         surgeons,
       };
-      const res = await fetch(`/api/v1/video/`, {
+      const res = await fetch(`${BASE}/api/v1/video/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify(body)
@@ -89,13 +90,13 @@
         saveBtn.disabled = false; return;
       }
       setStatus('Saved', 'ok');
-      setTimeout(()=>{ window.location.href = `/${encodeURIComponent(vid)}`; }, 500);
+      setTimeout(()=>{ window.location.href = `${BASE}/${encodeURIComponent(vid)}`; }, 500);
     } catch(e){ setStatus('Network error', 'error'); saveBtn.disabled = false; }
   });
 
   cancelBtn?.addEventListener('click', (e)=>{
     e.preventDefault();
-    window.location.href = `/${encodeURIComponent(vid)}`;
+    window.location.href = `${BASE}/${encodeURIComponent(vid)}`;
   });
 
   load();

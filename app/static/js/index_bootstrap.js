@@ -1,6 +1,7 @@
 // Lightweight bootstrap previously in inline <script> of index.html (CSP compliant)
 // Handles initial tab switching before heavy index.js logic executes.
 (function () {
+  const BASE = '/video';
   const tabs = document.querySelectorAll('.tab-btn');
   const panels = document.querySelectorAll('.tab-panel');
   function switchTab(id) {
@@ -43,11 +44,11 @@
     const isUploader = roles.includes('uploader') || roles.includes('admin') || isSuper;
     // Hide Upload button for non-uploaders
     if (!isUploader) {
-      document.querySelectorAll('a[href="/upload"]').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll(`a[href="${BASE}/upload"]`).forEach(el => el.classList.add('hidden'));
     }
     // Hide Favourites if not logged in
     if (!u) {
-      document.querySelectorAll('a[href="/favourites"]').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll(`a[href="${BASE}/favourites"]`).forEach(el => el.classList.add('hidden'));
     }
   } catch { /* ignore */ }
 })();

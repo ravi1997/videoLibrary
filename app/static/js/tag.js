@@ -4,9 +4,10 @@
    ========================================================================== */
 
 (() => {
+  const BASE = '/video';
   const CFG = {
-    API_TAGS: "/api/v1/video/tags",
-    API_VIDEOS: "/api/v1/video/", // supports ?tags=&page=&page_size=&sort=
+    API_TAGS: BASE + "/api/v1/video/tags",
+    API_VIDEOS: BASE + "/api/v1/video/", // supports ?tags=&page=&page_size=&sort=
     PAGE_SIZE: 12,
     TIMEOUT_MS: 8000,
   };
@@ -112,7 +113,7 @@
         const li = document.createElement('li');
         const a = document.createElement('a');
         a.className = 'btn-ghost w-full justify-start rounded-lg flex items-center gap-2 no-underline';
-        a.href = `/tag/${encodeURIComponent(name)}`;
+        a.href = `${BASE}/tag/${encodeURIComponent(name)}`;
         a.textContent = name;
         if(name.toLowerCase() === (currentTag||'').toLowerCase()) a.classList.add('ring-1','ring-[color:var(--brand-600)]');
         li.appendChild(a); dom.tagList.appendChild(li);
@@ -165,7 +166,7 @@
     const ids = (items||[]).map(v=> v.uuid || v.id || v.slug).filter(Boolean);
     if(!ids.length) return;
     const params = new URLSearchParams(); params.set('ids', ids.join(','));
-    const r = await fetch(`/api/v1/video/playlists/contains?${params.toString()}`, { headers:{ 'Accept':'application/json' }});
+    const r = await fetch(`${BASE}/api/v1/video/playlists/contains?${params.toString()}`, { headers:{ 'Accept':'application/json' }});
     if(!r.ok) return; const data = await r.json().catch(()=>({present:[]}));
     const present = new Set(data.present||[]);
     container.querySelectorAll('[data-video-id]').forEach(a=>{
@@ -213,12 +214,12 @@
     // data
     const id = v.uuid ?? v.id ?? v.slug ?? '';
     const safeId = encodeURIComponent(id);
-    const href = v.url || (id ? `/${safeId}` : '#');
+    const href = v.url || (id ? `${BASE}/${safeId}` : '#');
     const titleText = (v.title || '').trim() || 'Untitled';
     const categoryTxt = (v.category_name || v.category?.name || '').trim();
     const descText = (v.description || categoryTxt || '').trim();
     const authorName = (v.author || v.channel || '').trim() || 'Unknown';
-    const thumbUrl = v.thumbnail || (id ? `/api/v1/video/thumbnails/${safeId}.jpg` : placeholderThumb(id));
+    const thumbUrl = v.thumbnail || (id ? `${BASE}/api/v1/video/thumbnails/${safeId}.jpg` : placeholderThumb(id));
     const durText = fmtDuration(v.duration);
     const metaText = compactMeta(v);
     const avatarUrl = v.author_avatar || v.channel_avatar || placeholderAvatar(authorName);
@@ -269,8 +270,8 @@
     const authorName = v.author || v.channel || 'Unknown';
     const avatarUrl = v.author_avatar || v.channel_avatar || placeholderAvatar(authorName);
 
-    if (link) link.href = v.url || `/${safeId}`;
-    if (thumb) { thumb.src = `/api/v1/video/thumbnails/${safeId}.jpg`; thumb.alt = titleText; }
+    if (link) link.href = v.url || `${BASE}/${safeId}`;
+    if (thumb) { thumb.src = `${BASE}/api/v1/video/thumbnails/${safeId}.jpg`; thumb.alt = titleText; }
     if (title) title.textContent = titleText;
     if (desc) desc.textContent = descText;
     if (av) { av.src = avatarUrl; av.alt = authorName; }

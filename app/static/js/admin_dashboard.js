@@ -194,7 +194,7 @@
 
   async function load(){
     try {
-      const r = await fetch('/api/v1/admin/dashboard/metrics', { headers: { 'Accept':'application/json' } });
+      const r = await fetch('/video/api/v1/admin/dashboard/metrics', { headers: { 'Accept':'application/json' } });
       if(!r.ok){ root.innerHTML = `<div class='text-red-600 text-sm'>Failed to load metrics (${r.status})</div>`; return; }
       const data = await r.json();
       render(data);

@@ -1,6 +1,6 @@
 // Change Password page logic extracted for CSP compliance
 (() => {
-  const API_CHANGE = "/api/v1/user/change-password"; // adjust if backend differs
+  const API_CHANGE = "/video/api/v1/user/change-password"; // adjust if backend differs
   const $ = (s, r = document) => r.querySelector(s);
   const form = $("#pwdForm");
   const currentPwd = $("#currentPwd");
@@ -108,7 +108,7 @@
       const res = await fetch(API_CHANGE, withAuth({ method: "PUT", body: JSON.stringify(payload) }));
       if (res.status === 401) {
         openDialog("Error", "Your session expired. Please log in again.");
-        setTimeout(() => (location.href = "/login"), 900);
+        setTimeout(() => (location.href = "/video/login"), 900);
         return;
       }
       const data = await res.json().catch(() => ({}));

@@ -1,4 +1,5 @@
 (function(){
+  const BASE = '/video';
   const btn = document.getElementById('addToPlaylistBtn');
   const modal = document.getElementById('plQuickModal');
   if(!btn || !modal) return;
@@ -22,7 +23,7 @@
     selectEl.innerHTML = '';
     try{
       // 'personal' now returns all owned playlists (personal + public)
-      const r = await fetch('/api/v1/video/playlists?scope=personal&page=1&page_size=200', { headers: { 'Accept':'application/json', ...authHeader() }});
+      const r = await fetch(BASE + '/api/v1/video/playlists?scope=personal&page=1&page_size=200', { headers: { 'Accept':'application/json', ...authHeader() }});
       if(!r.ok){ selectEl.innerHTML = `<option>Failed to load (${r.status})</option>`; return; }
       const data = await r.json();
       const items = data.items || [];
@@ -37,7 +38,7 @@
 
   async function addToSelected(){
     msgEl.textContent=''; const pid = selectEl.value; if(!pid){ msgEl.textContent='Select a playlist'; return; }
-    const r = await fetch(`/api/v1/video/playlists/${pid}/items`, { method:'POST', headers: jsonHeaders(), body: JSON.stringify({ video_id: videoId }) });
+    const r = await fetch(`${BASE}/api/v1/video/playlists/${pid}/items`, { method:'POST', headers: jsonHeaders(), body: JSON.stringify({ video_id: videoId }) });
     const data = await r.json().catch(()=>({}));
     if(!r.ok){ msgEl.textContent = data.error || `Error (${r.status})`; return; }
     msgEl.textContent = 'Added'; setTimeout(close, 800);
@@ -45,12 +46,12 @@
 
   async function createAndAdd(){
     msgEl.textContent=''; const title = newTitle.value.trim(); if(!title){ msgEl.textContent='Enter title'; return; }
-    const rp = await fetch('/api/v1/video/playlists', { method:'POST', headers: jsonHeaders(), body: JSON.stringify({ title, is_public: false }) });
+    const rp = await fetch(BASE + '/api/v1/video/playlists', { method:'POST', headers: jsonHeaders(), body: JSON.stringify({ title, is_public: false }) });
     const pd = await rp.json().catch(()=>({}));
     if(!rp.ok){ msgEl.textContent = pd.error || `Create failed (${rp.status})`; return; }
     const pid = pd.playlist?.id; if(!pid){ msgEl.textContent = 'Create failed'; return; }
     newTitle.value=''; loadOwned();
-    const ri = await fetch(`/api/v1/video/playlists/${pid}/items`, { method:'POST', headers: jsonHeaders(), body: JSON.stringify({ video_id: videoId }) });
+    const ri = await fetch(`${BASE}/api/v1/video/playlists/${pid}/items`, { method:'POST', headers: jsonHeaders(), body: JSON.stringify({ video_id: videoId }) });
     const idd = await ri.json().catch(()=>({}));
     if(!ri.ok){ msgEl.textContent = idd.error || `Add failed (${ri.status})`; return; }
     msgEl.textContent = 'Created and added'; setTimeout(close, 800);
@@ -62,4 +63,3 @@
   if(createBtn) createBtn.addEventListener('click', createAndAdd);
   modal.addEventListener('click', (e)=>{ if(e.target === modal) close(); });
 })();
-

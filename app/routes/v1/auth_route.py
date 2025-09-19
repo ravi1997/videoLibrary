@@ -632,6 +632,8 @@ def create_account():
             current_app.logger.exception('create_account: error processing temp uploads')
 
     try:
+        user.role_associations.append(
+            UserRole(user_id=user.id, role=Role.VIEWER))
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -807,7 +809,7 @@ def verify_user():
         return jsonify({'msg': 'already verified'}), 200
 
     # Optional rule: require document if general user
-    if target.user_type == 'general' and not target.document_submitted:
+    if not target.employee_id and not target.document_submitted:
         audit_log('verify_user_failed', target_user_id=target_id, detail='doc_required')
         return jsonify({'msg': 'document required before verification'}), 409
 

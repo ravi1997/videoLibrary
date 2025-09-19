@@ -11,16 +11,17 @@
 
 (() => {
     // ------------------ Config ------------------
+    const BASE = '/video';
     const CFG = {
-        API_UPLOAD: "/api/v1/video/upload",            // direct (legacy) upload
-        API_UPLOAD_INIT: "/api/v1/video/upload/init",   // chunk init
-        API_UPLOAD_CHUNK: "/api/v1/video/upload/chunk", // chunk endpoint
-    API_UPLOAD_COMPLETE: "/api/v1/video/upload/complete",
-    API_UPLOAD_STATUS: "/api/v1/video/upload/status",
-        API_METADATA: "/api/v1/video/",
-        API_CATEGORIES: "/api/v1/video/categories",
-        API_TAGS: "/api/v1/video/tags",
-        API_SURGEONS: "/api/v1/video/surgeons",
+        API_UPLOAD: BASE + "/api/v1/video/upload",            // direct (legacy) upload
+        API_UPLOAD_INIT: BASE + "/api/v1/video/upload/init",   // chunk init
+        API_UPLOAD_CHUNK: BASE + "/api/v1/video/upload/chunk", // chunk endpoint
+    API_UPLOAD_COMPLETE: BASE + "/api/v1/video/upload/complete",
+    API_UPLOAD_STATUS: BASE + "/api/v1/video/upload/status",
+        API_METADATA: BASE + "/api/v1/video/",
+        API_CATEGORIES: BASE + "/api/v1/video/categories",
+        API_TAGS: BASE + "/api/v1/video/tags",
+        API_SURGEONS: BASE + "/api/v1/video/surgeons",
         TIMEOUT_MS: 60_000,
         MAX_FILE_MB: 5_000,
     CHUNK_SIZE: 8 * 1024 * 1024, // 8 MB (initial; may adapt)
@@ -70,7 +71,10 @@
         // chunk/resume
         uploadId: null,
         totalChunks: 0,
+        // Current client chunk size for slicing (may adapt but must not exceed negotiatedChunkSize)
         chunkSize: CFG.CHUNK_SIZE,
+        // Maximum allowed by server for this session (set by /upload/init or /upload/status)
+        negotiatedChunkSize: null,
         nextChunk: 0,
         aborted: false,
         startedAt: 0,
@@ -226,19 +230,23 @@
             // Ask server for authoritative status
             try {
                 const qs = new URLSearchParams({ upload_id: existing.upload_id });
-                const res = await fetch(`${CFG.API_UPLOAD_STATUS}?${qs.toString()}`);
+                const headers = { Accept: "application/json", ...(getToken()? { Authorization: 'Bearer ' + getToken() }: {}) };
+                const res = await fetch(`${CFG.API_UPLOAD_STATUS}?${qs.toString()}` , { headers });
                 if (res.ok) {
                     const status = await res.json();
                     if (status.total_chunks && status.next_index < status.total_chunks) {
                         state.uploadId = status.upload_id;
-                        state.chunkSize = status.chunk_size || existing.chunk_size;
+                        state.negotiatedChunkSize = status.chunk_size || existing.chunk_size || CFG.CHUNK_SIZE;
+                        // Lock to negotiated chunk size on resume
+                        state.chunkSize = state.negotiatedChunkSize;
                         state.totalChunks = status.total_chunks;
                         state.nextChunk = status.next_index;
                         showStatus(`Resuming at chunk ${state.nextChunk}/${state.totalChunks}…`, "info");
                     } else if (status.total_chunks && status.next_index === status.total_chunks) {
                         // All chunks present but not finalized on client: attempt finalize
                         state.uploadId = status.upload_id;
-                        state.chunkSize = status.chunk_size || existing.chunk_size;
+                        state.negotiatedChunkSize = status.chunk_size || existing.chunk_size || CFG.CHUNK_SIZE;
+                        state.chunkSize = state.negotiatedChunkSize;
                         state.totalChunks = status.total_chunks;
                         state.nextChunk = status.total_chunks;
                         showStatus("Finalizing previous upload session…", "info");
@@ -248,6 +256,8 @@
                         await initChunkSession();
                     }
                 } else {
+                    // Clear stale session if not found/forbidden, then init a new one
+                    if (res.status === 404 || res.status === 403) clearSession();
                     await initChunkSession();
                 }
             } catch {
@@ -278,7 +288,11 @@
         });
         if (!res.ok) throw new Error("init failed");
         const data = await res.json();
-        state.uploadId = data.upload_id; state.chunkSize = data.chunk_size; state.totalChunks = data.total_chunks; state.nextChunk = 0;
+        state.uploadId = data.upload_id;
+        state.negotiatedChunkSize = data.chunk_size || CFG.CHUNK_SIZE;
+        // Lock chunk size for the entire session to the server-negotiated value
+        state.chunkSize = state.negotiatedChunkSize;
+        state.totalChunks = data.total_chunks; state.nextChunk = 0;
         persistSession();
     }
 
@@ -294,36 +308,33 @@
 
     async function uploadChunksLoop() {
         const file = state.file; if (!file) return;
-        const inFlight = new Set();
-        const scheduleNext = async () => {
-            if (state.aborted) return;
-            if (state.paused) return; // don't schedule new chunks while paused
-            if (state.nextChunk >= state.totalChunks) return;
-            const chunkIndex = state.nextChunk++;
-            const start = chunkIndex * state.chunkSize;
-            const end = Math.min(start + state.chunkSize, file.size);
-            const blob = file.slice(start, end);
-            const p = sendChunkWithRetry(blob, chunkIndex).then(() => {
-                inFlight.delete(p);
-                state.uploadedBytes = Math.max(state.uploadedBytes, end);
-                persistSession();
-                const pct = (state.uploadedBytes / file.size) * 100;
-                updateProgressMetrics(pct, state.uploadedBytes, file.size);
-                return scheduleNext();
-            }).catch(err => {
-                inFlight.delete(p);
-                if (!state.aborted) {
-                    console.error("Chunk failed permanently", err);
-                    state.aborted = true;
-                    showStatus("Chunk upload failed.", "error");
+        // Create worker coroutines to process the queue concurrently
+        const workers = new Array(Math.max(1, CFG.PARALLEL_CHUNKS)).fill(0).map(async () => {
+            while (!state.aborted) {
+                if (state.paused) { await new Promise(r => setTimeout(r, 100)); continue; }
+                const idx = state.nextChunk;
+                if (idx >= state.totalChunks) break;
+                state.nextChunk++;
+                const start = idx * state.chunkSize;
+                const end = Math.min(start + state.chunkSize, file.size);
+                const blob = file.slice(start, end);
+                try {
+                    await sendChunkWithRetry(blob, idx);
+                    state.uploadedBytes = Math.max(state.uploadedBytes, end);
+                    persistSession();
+                    const pct = (state.uploadedBytes / file.size) * 100;
+                    updateProgressMetrics(pct, state.uploadedBytes, file.size);
+                } catch (err) {
+                    if (!state.aborted) {
+                        console.error("Chunk failed permanently", err);
+                        state.aborted = true;
+                        showStatus("Chunk upload failed.", "error");
+                    }
+                    break;
                 }
-            });
-            inFlight.add(p);
-            if (inFlight.size < CFG.PARALLEL_CHUNKS) await scheduleNext();
-        };
-        const starters = [];
-        for (let i = 0; i < CFG.PARALLEL_CHUNKS; i++) starters.push(scheduleNext());
-        await Promise.all(Array.from(inFlight));
+            }
+        });
+        await Promise.all(workers);
     }
 
     async function sendChunkWithRetry(blob, index) {
@@ -364,11 +375,8 @@
         if (state.adaptiveHistory.length > 6) state.adaptiveHistory.shift();
         const avg = state.adaptiveHistory.reduce((a,b)=>a+b,0)/state.adaptiveHistory.length;
         const desiredMB = CFG.TARGET_CHUNK_TIME_MS / avg;
-        let newSize = desiredMB * 1024 * 1024;
-        newSize = Math.min(Math.max(newSize, CFG.MIN_DYNAMIC_CHUNK), CFG.MAX_DYNAMIC_CHUNK);
-        if (Math.abs(newSize - state.chunkSize) / state.chunkSize > 0.25) {
-            state.chunkSize = Math.round(newSize / (256*1024)) * (256*1024);
-        }
+        // Do not change chunk size mid-session. Keep it fixed to negotiated value.
+        // We still compute timing to optionally display or log in future.
     }
 
     function updateRetryInfo() {
@@ -415,7 +423,7 @@
         if (!uuid) return;
         try {
             const headers = { Accept: 'application/json', ...(getToken()? { Authorization: 'Bearer ' + getToken() }: {}) };
-            const res = await fetch(`/api/v1/video/${uuid}`, { headers });
+            const res = await fetch(`${BASE}/api/v1/video/${uuid}`, { headers });
             if (!res.ok) return; // silently ignore
             const data = await res.json();
             if (data.title && dom.title) dom.title.value = data.title;
@@ -541,7 +549,7 @@
 
             // Redirect to watch page if server returns a video id/slug
             const id = data.video_id || state.videoId;
-            if (id) navigate(`/`);
+            if (id) navigate(`${BASE}/`);
         } catch (err) {
             console.error(err);
             showStatus("❌ Failed to save metadata.", "error");

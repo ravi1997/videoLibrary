@@ -20,9 +20,9 @@ def ext_allowed(filename: str, allowed: Set[str]) -> bool:
 
 def get_max_video_mb(app) -> int:
     try:
-        return int(app.config.get('MAX_CONTENT_LENGTH_MB', 600))
+        return int(app.config.get('MAX_CONTENT_LENGTH_MB', 1000))
     except Exception:
-        return 600
+        return 1000
 
 
 def sniff_mime_stream(fileobj: IO[bytes]) -> Optional[str]:

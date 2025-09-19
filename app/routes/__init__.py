@@ -22,11 +22,12 @@ def register_blueprints(app):
     """
 
 
-    app.register_blueprint(view_bp, url_prefix='/')
-    app.register_blueprint(user_bp, url_prefix='/api/v1/user')
-    app.register_blueprint(auth_bp, url_prefix='/api/v1/auth')
-    app.register_blueprint(video_bp, url_prefix='/api/v1/video')
+    BASE = '/video'
+    app.register_blueprint(view_bp, url_prefix=BASE)
+    app.register_blueprint(user_bp, url_prefix=f'{BASE}/api/v1/user')
+    app.register_blueprint(auth_bp, url_prefix=f'{BASE}/api/v1/auth')
+    app.register_blueprint(video_bp, url_prefix=f'{BASE}/api/v1/video')
     # Versioned admin/superadmin APIs
-    app.register_blueprint(super_api_bp, url_prefix='/api/v1/super')
-    app.register_blueprint(admin_api_bp, url_prefix='/api/v1/admin')
+    app.register_blueprint(super_api_bp, url_prefix=f'{BASE}/api/v1/super')
+    app.register_blueprint(admin_api_bp, url_prefix=f'{BASE}/api/v1/admin')
     app.logger.info("Blueprints registered (core + admin_api + super_api)")
