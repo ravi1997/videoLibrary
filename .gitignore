@@ -9,3 +9,5 @@
 **/__pycache__/**
 /app/uploads/**
 /app/static/hls_output/*
+/js_build/**
+/app/static/thumbnails/**
